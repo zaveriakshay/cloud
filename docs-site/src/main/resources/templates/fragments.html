@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<div th:fragment="doc_and_code_example" class="flex flex-1">
+    <!-- Middle Pane: Description -->
+    <main class="w-2/5 p-12 overflow-y-auto">
+        <div class="prose prose-slate max-w-none" th:utext="${content}"></div>
+    </main>
+
+    <!-- Right Pane: Code Example -->
+    <aside class="w-3/5 p-12 bg-slate-100 border-l border-slate-200/80">
+        <div class="sticky top-12">
+            <div class="bg-slate-900 rounded-xl shadow-lg">
+                <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700/50">
+                    <span class="text-sm font-medium text-slate-200">EXAMPLE REQUEST</span>
+                    <div class="flex items-center gap-4">
+                        <form id="snippet-form"
+                              hx-get="/snippet"
+                              hx-target="#snippet-container"
+                              hx-swap="innerHTML"
+                              hx-trigger="change from:#language-select">
+                            <div class="bg-black/20 rounded-md p-0.5 flex items-center">
+                                <select id="language-select"
+                                        name="lang"
+                                        class="bg-transparent text-white text-sm border-0 focus:ring-0 appearance-none py-1 pl-2 pr-6">
+                                    <option value="shell_curl">cURL</option>
+                                    <option value="javascript_axios">Node.js</option>
+                                    <option value="python_requests">Python</option>
+                                    <option value="java_okhttp">Java</option>
+                                    <option value="csharp_restsharp">C#</option>
+                                    <option value="php_curl">PHP</option>
+                                    <option value="go_native">Go</option>
+                                    <option value="ruby_native">Ruby</option>
+                                    <option value="swift_urlsession">Swift</option>
+                                    <option value="kotlin_okhttp">Kotlin</option>
+                                </select>
+                            </div>
+                            <input type="hidden" name="page" th:value="${currentPage}" />
+                        </form>
+                        <a href="#" id="try-it-out-link" th:attr="data-operation-id=${currentPage}" class="text-sm font-semibold text-indigo-400 hover:text-indigo-300 transition-colors">Try it out &rarr;</a>
+                    </div>
+                </div>
+                <!-- Add a wrapper div for the snippet to be targeted by HTMX -->
+                <div id="snippet-container" class="p-5 text-sm">
+                    <!-- The initial content is now a proper Prism structure -->
+                    <pre class="line-numbers"><code th:class="'language-' + ${language}" th:utext="${snippet}"></code></pre>
+                </div>
+            </div>
+        </div>
+    </aside>
+</div>
+
+<!-- This fragment is now self-contained with the <pre> tag for proper swapping -->
+<div th:fragment="code_snippet_wrapper">
+    <pre class="line-numbers"><code th:class="'language-' + ${language}" th:utext="${snippet}"></code></pre>
+</div>
+
+</body>
+</html>

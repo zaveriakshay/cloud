@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head>
+    <title>Scalar API Reference - Test</title>
+    <meta charset="utf-8" />
+    <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1" />
+</head>
+<body>
+<!-- Use a specific id for the container -->
+<div id="scalar-api-reference"></div>
+
+<!-- Load the Script -->
+<script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+<script>
+    // Initialize the API Reference
+    var container = document.getElementById('scalar-api-reference')
+
+    // Check if the container exists
+    if (container) {
+        Scalar.createApiReference(container, {
+            // Use the local openapi spec
+            spec: {
+                url: '/api/openapi.yaml',
+            }
+        })
+    }
+</script>
+</body>
+</html>

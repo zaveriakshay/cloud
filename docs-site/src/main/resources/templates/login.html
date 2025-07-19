@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style> body { font-family: 'Inter', sans-serif; } </style>
+</head>
+<body class="bg-slate-100 flex items-center justify-center h-screen">
+<div class="w-full max-w-md">
+    <div class="bg-white shadow-lg rounded-lg p-8">
+        <h1 class="text-2xl font-bold text-center text-slate-800 mb-2">Welcome Back</h1>
+        <p class="text-center text-slate-500 mb-6">Login via SSO to access the documentation.</p>
+        <div class="w-full h-80 border border-slate-200 rounded-lg overflow-hidden">
+            <iframe id="sso-iframe" src="/keycloak-mock" class="w-full h-full border-0"></iframe>
+        </div>
+    </div>
+    <p class="text-center text-xs text-slate-400 mt-4">This is a mock SSO login for demonstration purposes.</p>
+</div>
+<script>
+    window.addEventListener('message', function(event) {
+        if (event.data === 'login_success') {
+            window.location.href = '/docs';
+        }
+    }, false);
+</script>
+</body>
+</html>

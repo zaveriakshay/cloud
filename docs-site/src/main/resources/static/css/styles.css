@@ -1,0 +1,43 @@
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: #f8fafc; /* slate-50 */
+}
+/* Custom styles for a more polished, Stripe-like look */
+.sidebar-link {
+    position: relative;
+    transition: color 0.2s ease-in-out;
+    border-left: 2px solid transparent;
+    padding-left: 1rem;
+    margin-left: -1rem;
+}
+.sidebar-link.active {
+    color: #4f46e5; /* indigo-600 */
+    font-weight: 600;
+    border-left-color: #4f46e5; /* indigo-600 */
+}
+.prose h1 {
+    font-size: 2.25rem; /* text-4xl */
+    font-weight: 700;
+}
+.prose h2 {
+    font-size: 1.5rem; /* text-2xl */
+    font-weight: 600;
+    margin-top: 2em;
+    padding-bottom: 0.5em;
+    border-bottom: 1px solid #e2e8f0; /* slate-200 */
+}
+.prose pre {
+    background-color: #0f172a; /* slate-900 */
+    color: #e2e8f0; /* slate-200 */
+    padding: 1.25rem;
+    border-radius: 0.5rem; /* rounded-lg */
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+.prose code:not(pre > code) {
+    background-color: #e2e8f0; /* slate-200 */
+    color: #334155; /* slate-700 */
+    padding: 0.2em 0.4em;
+    margin: 0;
+    font-size: 85%;
+    border-radius: 0.25rem; /* rounded */
+}
