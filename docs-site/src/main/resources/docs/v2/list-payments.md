@@ -1,6 +1,6 @@
 # List Payments
 
-> **GET** `/payments`
+> **GET** `/v2/payments`
 
 Retrieve a comprehensive list of all payments made through your account. This endpoint is essential for reconciliation, reporting, and displaying transaction history to your users.
 

@@ -1,0 +1,99 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="utf-8">
+    <title>RapiDoc API Tester</title>
+    <script type="module" src="https://unpkg.com/rapidoc/dist/rapidoc-min.js"></script>
+    <style>
+        /* Ensure RapiDoc fills the container */
+        rapi-doc {
+            width: 100%;
+            height: 100vh;
+        }
+    </style>
+</head>
+<body>
+<rapi-doc
+        id="api-tester"
+        render-style="view"
+        show-header="false"
+        allow-server-selection="false"
+        theme="light"
+        primary-color="#4f46e5"
+        nav-accent-color="#4f46e5"
+        default-schema-tab="model"
+        show-method-in-nav-bar="as-colored-text"
+        use-path-in-nav-bar="true"
+        try-it-opened="true"
+        th:attr="spec-url=${specUrl}"
+>
+</rapi-doc>
+
+<script th:inline="javascript">
+    /*<![CDATA[*/
+    // Get the path and method from the controller
+    const httpPath = /*[[${httpPath}]]*/ null;
+    const httpMethod = /*[[${httpMethod}]]*/ null;
+    /*]]>*/
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const apiTester = document.getElementById('api-tester');
+
+        if (httpPath && httpMethod) {
+            // FIX: Use a regex to replace path parameters like {paymentId} with -paymentId-.
+            // This matches the ID generation logic discovered from the rendered DOM.
+            const sanitizedPath = httpPath.replace(/{(\w+)}/g, '-$1-');
+            const elementId = `${httpMethod}-${sanitizedPath}`;
+
+            console.log(`RapiDoc configured to scroll to element with ID: '${elementId}' after spec loads.`);
+
+            apiTester.addEventListener('spec-loaded', function() {
+                console.log("'spec-loaded' event fired. Starting polling mechanism to find the target element...");
+
+                const timeout = 3000; // Stop trying after 3 seconds
+                const startTime = Date.now();
+                const shadowRoot = this.shadowRoot;
+
+                function findAndScroll() {
+                    // Try to find the element inside the Shadow DOM using the correct, sanitized ID
+                    const targetElement = shadowRoot.getElementById(elementId);
+
+                    if (targetElement) {
+                        // Success! The element is now in the DOM.
+                        console.log(`Element with ID '${elementId}' found after ${Date.now() - startTime}ms. Scrolling into view.`);
+                        targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        console.log("Scroll command successfully issued via scrollIntoView().");
+
+                        // Find the summary element within the section and click it to expand.
+                        const summaryElement = targetElement.querySelector('summary');
+                        if (summaryElement) {
+                            console.log("Found summary element, clicking to expand.");
+                            summaryElement.click();
+                        } else {
+                            console.warn("Could not find summary element to click for expansion.");
+                        }
+
+                        return; // Stop polling
+                    }
+
+                    // If element is not found, check if we've timed out
+                    if (Date.now() - startTime > timeout) {
+                        console.error(`Polling timed out after ${timeout}ms. Could not find the target element with ID '${elementId}'. The deep-link failed.`);
+                        return; // Stop polling
+                    }
+
+                    // If not found and not timed out, schedule the next check.
+                    requestAnimationFrame(findAndScroll);
+                }
+
+                // Start the polling process
+                requestAnimationFrame(findAndScroll);
+            });
+        } else {
+            console.log("No 'httpPath' or 'httpMethod' provided, so no automatic scrolling will occur.");
+        }
+    });
+</script>
+
+</body>
+</html>

@@ -7,7 +7,6 @@ info:
     ## Authentication
     All API requests require authentication using API keys passed in the `Authorization` header:
     ```
-    Authorization: Bearer your_api_key_here
     ```
     
     ## Rate Limiting
