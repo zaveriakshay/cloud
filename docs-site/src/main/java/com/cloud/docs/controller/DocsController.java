@@ -1,6 +1,9 @@
 package com.cloud.docs.controller;
 
 import lombok.RequiredArgsConstructor;
+import org.commonmark.node.Node;
+import org.commonmark.parser.Parser;
+import org.commonmark.renderer.html.HtmlRenderer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Controller;
@@ -21,68 +24,69 @@ public class DocsController {
     private static final Logger log = LoggerFactory.getLogger(DocsController.class);
 
     private final ApiRegistryService apiRegistry;
-    private final MarkdownService markdownService;
     private final SnippetService snippetService;
     private final ResponseService responseService;
+    // Inject the markdown beans directly
+    private final Parser markdownParser;
+    private final HtmlRenderer htmlRenderer;
 
     @GetMapping("/")
     public String root() {
         return "redirect:/docs";
     }
 
+    /**
+     * REFACTORED: The main entry point now accepts an 'apiId' to determine which API to display.
+     * This enables tab-based navigation with full page reloads.
+     */
     @GetMapping("/docs")
-    public String index(Model model) throws IOException {
-        // 1. Get all available APIs for the sidebar dropdowns
-        model.addAttribute("availableApis", apiRegistry.getAvailableApis());
+    public String index(@RequestParam(name = "apiId", required = false) String apiId, Model model) throws IOException {
+        // Pass all loaded APIs to the view for the top navigation tabs
+        model.addAttribute("allApis", apiRegistry.getSpecifications());
 
-        // 2. Determine the default API to display on first load
-        Optional<ApiSpecification> defaultApiOptional = apiRegistry.getFirstApi();
-        if (defaultApiOptional.isEmpty()) {
-            log.error("No APIs found. The documentation site cannot be rendered.");
-            model.addAttribute("error", "No API specifications found in static/api/");
-            return "error"; // Or a specific error template
+        // Determine which API to load based on the request parameter or the default
+        Optional<ApiSpecification> apiToLoadOptional = (apiId != null)
+                ? apiRegistry.getSpecification(apiId)
+                : apiRegistry.getFirstApi();
+
+        // If the requested apiId is invalid or no APIs exist, fall back gracefully.
+        if (apiToLoadOptional.isEmpty()) {
+            // Try getting the first one again as a safe fallback
+            apiToLoadOptional = apiRegistry.getFirstApi();
+            if (apiToLoadOptional.isEmpty()) {
+                log.error("No APIs found. The documentation site cannot be rendered.");
+                model.addAttribute("error", "No API specifications found.");
+                return "error";
+            }
         }
-        ApiSpecification defaultApi = defaultApiOptional.get();
-        String defaultApiTitle = defaultApi.title();
-        String defaultApiVersion = defaultApi.version();
+        ApiSpecification currentApi = apiToLoadOptional.get();
 
-        model.addAttribute("defaultApiTitle", defaultApiTitle);
-        model.addAttribute("defaultApiVersion", defaultApiVersion);
+        // Pass the ID of the currently active API to the view for styling the active tab
+        // and initializing the Alpine.js state.
+        model.addAttribute("currentApiId", currentApi.id());
 
-        // 3. Load content for the default API
-        loadPageContent(model, defaultApiTitle, defaultApiVersion);
+        // Load all page content (sidebar, main docs, etc.) for the selected API
+        loadPageContent(model, currentApi.id());
 
         return "index";
     }
 
-    /**
-     * Dynamically loads the navigation links for a specific API version.
-     * Called by HTMX when an accordion is opened or a version is changed.
-     */
     @GetMapping("/sidebar-nav")
-    public String getSidebarNav(@RequestParam String title, @RequestParam String version, Model model) {
-        model.addAttribute("groupedOperations", snippetService.getGroupedApiOperations(title, version));
+    public String getSidebarNav(@RequestParam String apiId, Model model) {
+        model.addAttribute("groupedOperations", snippetService.getGroupedApiOperations(apiId));
         return "fragments :: sidebar_nav_section";
     }
 
-    /**
-     * Dynamically loads the main content area (markdown docs) for a specific API version.
-     * Called by HTMX when the version is changed.
-     */
     @GetMapping("/main-content")
-    public String getMainContent(@RequestParam String title, @RequestParam String version, Model model) throws IOException {
-        loadPageContent(model, title, version);
+    public String getMainContent(@RequestParam String apiId, Model model) throws IOException {
+        loadPageContent(model, apiId);
         return "fragments :: main_content_pane";
     }
 
-    /**
-     * Dynamically loads a code snippet for a specific operation.
-     */
     @GetMapping("/snippet")
     public String getSnippet(
-            @RequestParam String apiTitle,
-            @RequestParam String apiVersion,
-            @RequestParam String page, // This is the operationId
+            @RequestParam String apiId,
+            @RequestParam String page,
             @RequestParam String lang,
             Model model) {
 
@@ -90,74 +94,76 @@ public class DocsController {
         String target = parts[0];
         String client = parts.length > 1 ? parts[1] : "";
 
-        model.addAttribute("snippet", snippetService.generateSnippet(apiTitle, apiVersion, page, target, client));
+        model.addAttribute("snippet", snippetService.generateSnippet(apiId, page, target, client));
         model.addAttribute("language", getPrismLanguage(target));
         return "fragments :: code_snippet_wrapper";
     }
 
-    /**
-     * Dynamically loads response examples for a specific operation.
-     */
     @GetMapping("/responses")
     public String getResponses(
-            @RequestParam String apiTitle,
-            @RequestParam String apiVersion,
-            @RequestParam String page, // This is the operationId
+            @RequestParam String apiId,
+            @RequestParam String page,
             Model model) {
-        model.addAttribute("responses", responseService.getResponsesForOperation(apiTitle, apiVersion, page));
+        model.addAttribute("responses", responseService.getResponsesForOperation(apiId, page));
         return "fragments :: response_section";
     }
 
     /**
-     * Helper method to load all necessary content for a given API version into the model.
-     * This now uses the API's sub-path to fetch version-specific markdown.
+     * REFACTORED: This method now uses a single source of truth (SnippetService)
+     * to build the documentation content, making it more robust.
      */
-    private void loadPageContent(Model model, String title, String version) throws IOException {
-        // Get the full ApiSpecification object to access its subPath
-        Optional<ApiSpecification> apiSpecOptional = apiRegistry.getApiSpecification(title, version);
-
+    private void loadPageContent(Model model, String apiId) throws IOException {
+        Optional<ApiSpecification> apiSpecOptional = apiRegistry.getSpecification(apiId);
         if (apiSpecOptional.isEmpty()) {
-            log.error("Could not find API for title '{}' and version '{}' during page load.", title, version);
-            // You might want to add error handling here, e.g., by adding an error to the model
+            log.error("Could not find API for id '{}' during page load.", apiId);
             return;
         }
         ApiSpecification apiSpec = apiSpecOptional.get();
 
-        // Get operations for the sidebar
-        Map<String, List<OperationInfo>> groupedOperations = snippetService.getGroupedApiOperations(title, version);
+        // 1. Get the list of operations. This is our reliable source of truth.
+        Map<String, List<OperationInfo>> groupedOperations = snippetService.getGroupedApiOperations(apiId);
         model.addAttribute("groupedOperations", groupedOperations);
 
-        // Get rendered markdown specific to this API's sub-path
-        Map<String, String> allDocsUnordered = markdownService.getRenderedHtmlForApi(apiSpec.subPath());
         Map<String, String> allDocsOrdered = new LinkedHashMap<>();
 
-        // Always add "get-started" first if it exists
-        if (allDocsUnordered.containsKey("get-started")) {
-            allDocsOrdered.put("get-started", allDocsUnordered.get("get-started"));
+        // 2. Process the main "get-started" page from the spec's info.description
+        if (apiSpec.openAPI().getInfo() != null && apiSpec.openAPI().getInfo().getDescription() != null) {
+            String infoMarkdown = apiSpec.openAPI().getInfo().getDescription();
+            allDocsOrdered.put("get-started", renderMarkdownToHtml(infoMarkdown));
         } else {
-            log.warn("The 'get-started.md' file is missing and will not be displayed.");
+            log.warn("The 'info.description' for the 'get-started' page is missing in the OpenAPI spec for apiId: {}", apiId);
         }
 
-        // Add docs for the operations in the currently selected API, maintaining order
+        // 3. Iterate through the known operations and render their descriptions directly.
         groupedOperations.values().stream()
                 .flatMap(List::stream)
                 .forEach(opInfo -> {
                     String pageName = opInfo.id();
-                    if (allDocsUnordered.containsKey(pageName)) {
-                        allDocsOrdered.put(pageName, allDocsUnordered.get(pageName));
+                    String markdownDescription = opInfo.description();
+
+                    if (markdownDescription != null && !markdownDescription.isBlank()) {
+                        allDocsOrdered.put(pageName, renderMarkdownToHtml(markdownDescription));
                     } else {
-                        log.warn("Markdown file for operation '{}' not found for API '{}' v'{}'. It will be skipped.", pageName, title, version);
+                        log.warn("Markdown description for operation '{}' not found for API '{}'. It will be skipped.", pageName, apiId);
                     }
                 });
 
         model.addAttribute("allDocs", allDocsOrdered);
 
-        // Provide initial state for the right pane, defaulting to the 'get-started' page
+        // Set default content for the right-hand panes
         String firstPage = "get-started";
         model.addAttribute("currentPage", firstPage);
-        model.addAttribute("snippet", snippetService.generateSnippet(title, version, firstPage, "shell", "curl"));
+        model.addAttribute("snippet", snippetService.generateSnippet(apiId, firstPage, "shell", "curl"));
         model.addAttribute("language", "bash");
-        model.addAttribute("responses", responseService.getResponsesForOperation(title, version, firstPage));
+        model.addAttribute("responses", responseService.getResponsesForOperation(apiId, firstPage));
+    }
+
+    private String renderMarkdownToHtml(String markdown) {
+        if (markdown == null || markdown.isBlank()) {
+            return "";
+        }
+        Node document = markdownParser.parse(markdown);
+        return htmlRenderer.render(document);
     }
 
     private String getPrismLanguage(String target) {

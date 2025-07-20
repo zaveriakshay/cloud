@@ -20,8 +20,7 @@
             padding: 0.25rem 0.75rem; font-size: 0.875rem; box-shadow: none; border: none;
         }
         div.code-toolbar > .toolbar .toolbar-item > button:hover { background: #2d3748; }
-        .prose pre { all: unset; }
-        .prose pre code { all: unset; }
+        /* FIX: Removed the overly aggressive prose overrides that were breaking markdown styling. */
         [x-cloak] { display: none !important; }
     </style>
 </head>
@@ -37,7 +36,7 @@
         <div class="p-6 pb-4 border-b border-slate-200 flex-shrink-0">
             <div class="flex items-center justify-between mb-4">
                 <h1 class="text-xl font-bold text-slate-900" :class="isSidebarCollapsed ? 'hidden' : 'block'">
-                    <a href="/docs" class="hover:text-indigo-600 transition-colors">API Docs</a>
+                    <a href="/docs" class="hover:text-indigo-600 transition-colors">noqodi API</a>
                 </h1>
                 <button @click="isSidebarCollapsed = !isSidebarCollapsed" class="flex-shrink-0 flex items-center justify-center h-9 w-9 text-slate-500 hover:bg-slate-100 hover:text-slate-800 rounded-md transition-colors">
                     <svg id="toggle-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 transition-transform duration-300" :class="isSidebarCollapsed ? 'rotate-180' : ''">
@@ -57,54 +56,36 @@
         <div class="flex-1 overflow-y-auto p-6">
             <nav>
                 <ul class="space-y-1">
-                    <li>
-                        <a href="#get-started" class="sidebar-link active">
-                            <span class="font-semibold" :class="isSidebarCollapsed ? 'hidden' : 'block'">Introduction</span>
-                        </a>
-                    </li>
-                    <th:block th:each="api : ${availableApis}">
-                        <li x-data="{ open: openApiAccordion === '[[${api.key}]]' }">
-                            <div class="flex items-center justify-between rounded-md" :class="{ 'bg-slate-100': open }">
-                                <button @click="open = !open; openApiAccordion = open ? '[[${api.key}]]' : ''"
-                                        class="flex items-center w-full text-left p-2 font-semibold text-slate-800">
-                                    <span :class="isSidebarCollapsed ? 'hidden' : 'block'" th:text="${api.key}"></span>
-                                </button>
-                                <div class="relative pr-2" :class="isSidebarCollapsed ? 'hidden' : 'block'">
-                                    <select name="version"
-                                            class="text-xs text-slate-500 bg-white border border-slate-300 rounded-md py-1 pl-2 pr-7 focus:ring-indigo-500 focus:border-indigo-500"
-                                            th:data-api-title="${api.key}"
-                                            @change="activeApiTitle = $el.dataset.apiTitle; activeApiVersion = $event.target.value; htmx.trigger('body', 'versionChanged')">
-                                        <option th:each="version : ${api.value}"
-                                                th:value="${version}"
-                                                th:text="'v' + ${version}"
-                                                th:selected="${api.key == defaultApiTitle and version == defaultApiVersion}"></option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div x-show="open" x-cloak
-                                 class="pl-2 pt-2"
-                                 :class="isSidebarCollapsed ? 'hidden' : 'block'"
-                                 th:id="'nav-container-' + ${api.key}"
-                                 hx-get="/sidebar-nav"
-                                 th:hx-vals="|'title':'${api.key}', 'version':activeApiVersion|"
-                                 hx-trigger="load, versionChanged from body"
-                                 hx-swap="innerHTML">
-                                <div th:if="${api.key == defaultApiTitle}" th:replace="~{fragments :: sidebar_nav_section}"></div>
-                            </div>
-                        </li>
-                    </th:block>
+                    <!-- The sidebar now correctly shows the operations for the currently loaded API -->
+                    <div th:replace="~{fragments :: sidebar_nav_section}"></div>
                 </ul>
             </nav>
         </div>
     </aside>
 
     <!-- Main Content Wrapper -->
-    <div id="main-content-wrapper" class="flex flex-1 flex-col">
-        <header class="h-16 bg-white border-b border-slate-200 flex-shrink-0 flex items-center px-8">
-            <div class="text-slate-600 font-medium">
-                API Reference
+    <!-- FIX: Added 'min-w-0' to prevent this flex item from overflowing its container -->
+    <div id="main-content-wrapper" class="flex flex-1 flex-col min-w-0">
+        <!-- ================================================================== -->
+        <!-- START: Corrected Header with API Tabs -->
+        <!-- ================================================================== -->
+        <header class="bg-white border-b border-slate-200 flex-shrink-0">
+            <div class="px-8">
+                <nav class="flex -mb-px" aria-label="Tabs">
+                    <a th:each="api : ${allApis}"
+                       th:href="@{/docs(apiId=${api.id})}"
+                       th:text="${api.title}"
+                       th:classappend="${api.id == currentApiId} ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'"
+                       class="whitespace-nowrap py-4 px-3 border-b-2 font-medium text-sm transition-colors">
+                        API Title
+                    </a>
+                </nav>
             </div>
         </header>
+        <!-- ================================================================== -->
+        <!-- END: Corrected Header with API Tabs -->
+        <!-- ================================================================== -->
+
         <div id="content-panes"
              class="flex flex-1 overflow-hidden"
              th:replace="~{fragments :: main_content_pane}">
@@ -127,7 +108,7 @@
     </div>
 </div>
 
-<!-- API Tester Modal (for RapiDoc) -->
+<!-- API Tester Modal -->
 <div id="api-tester-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden items-center justify-center p-4 sm:p-6 md:p-12 transition-opacity duration-300">
     <div class="bg-white rounded-xl shadow-2xl w-full h-full flex flex-col overflow-hidden">
         <div class="p-4 border-b flex justify-between items-center flex-shrink-0 bg-slate-50">
@@ -142,8 +123,7 @@
 
 <!-- Hidden inputs to hold the current state for HTMX requests -->
 <input type="hidden" id="current-page-input" name="page" th:value="${currentPage}" />
-<input type="hidden" id="active-api-title" name="apiTitle" x-model="activeApiTitle">
-<input type="hidden" id="active-api-version" name="apiVersion" x-model="activeApiVersion">
+<input type="hidden" id="active-api-id" name="apiId" th:value="${currentApiId}">
 
 <!-- Prism.js JS -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
@@ -155,10 +135,8 @@
 <script th:inline="javascript">
     function docsApp() {
         return {
-            isSidebarCollapsed: false,
-            activeApiTitle: /*[[${defaultApiTitle}]]*/ 'Default API',
-            activeApiVersion: /*[[${defaultApiVersion}]]*/ '1.0',
-            openApiAccordion: /*[[${defaultApiTitle}]]*/ 'Default API'
+            isSidebarCollapsed: false
+            // The activeApiId is no longer needed here as state is driven by the URL
         };
     }
 
@@ -314,17 +292,14 @@
             if (event.target.id === 'try-it-out-link') {
                 event.preventDefault();
                 const operationId = event.target.dataset.operationId;
-
-                const activeTitle = document.getElementById('active-api-title').value;
-                const activeVersion = document.getElementById('active-api-version').value;
+                const currentApiId = document.getElementById('active-api-id').value;
 
                 if (operationId && operationId !== 'get-started') {
-                    const title = encodeURIComponent(activeTitle);
-                    const version = encodeURIComponent(activeVersion);
+                    const apiId = encodeURIComponent(currentApiId);
                     const op = encodeURIComponent(operationId);
 
-                    // Point the iframe to the RapiDoc tester endpoint
-                    apiTesterIframe.src = `/rapidoc-tester?title=${title}&version=${version}&operation=${op}`;
+                    // FIX: Point the iframe to the RapiDoc tester endpoint
+                    apiTesterIframe.src = `/rapidoc-tester?apiId=${apiId}&operation=${op}`;
 
                     apiTesterModal.classList.remove('hidden');
                     apiTesterModal.classList.add('flex');

@@ -4,19 +4,15 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Operation;
-import io.swagger.v3.oas.models.PathItem;
 import io.swagger.v3.oas.models.examples.Example;
-import io.swagger.v3.oas.models.media.Content;
 import io.swagger.v3.oas.models.media.MediaType;
+import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.responses.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 
-import java.util.Map;
-import java.util.Optional;
-import java.util.TreeMap;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -24,108 +20,182 @@ import java.util.TreeMap;
 public class ResponseService {
 
     private final ApiRegistryService apiRegistry;
+    private final SnippetService snippetService; // Used to find operations efficiently
     private final ObjectMapper objectMapper;
 
-    private record OperationDetails(String path, PathItem.HttpMethod method, Operation operation) {}
-    public record ResponseInfo(String description, String exampleJson) {}
-
     /**
-     * Extracts all response examples for a given operation, now requiring API context.
+     * Gets a map of response examples for a given operation.
      *
-     * @param apiTitle The title of the API spec.
-     * @param apiVersion The version of the API spec.
-     * @param operationId The ID of the operation to get responses for.
-     * @return A map of status codes to their corresponding response information.
+     * @param apiId       The unique ID of the API specification.
+     * @param operationId The ID of the operation (e.g., "create-payment").
+     * @return A map where the key is the HTTP status code and the value contains the response details.
      */
-    public Map<String, ResponseInfo> getResponsesForOperation(String apiTitle, String apiVersion, String operationId) {
-        Map<String, ResponseInfo> responseExamples = new TreeMap<>();
-
+    public Map<String, ResponseInfo> getResponsesForOperation(String apiId, String operationId) {
         if ("get-started".equals(operationId)) {
-            return responseExamples; // No responses for the intro page
+            return Collections.emptyMap();
         }
 
-        // 1. Get the correct OpenAPI spec from the registry
-        Optional<OpenAPI> openApiOptional = apiRegistry.getApi(apiTitle, apiVersion);
-        if (openApiOptional.isEmpty()) {
-            log.warn("Cannot get responses. OpenAPI spec not found for: {} v{}", apiTitle, apiVersion);
-            return responseExamples;
+        Optional<ApiSpecification> apiSpecOptional = apiRegistry.getSpecification(apiId);
+        if (apiSpecOptional.isEmpty()) {
+            log.warn("Cannot get responses. API spec not found for id: {}", apiId);
+            return Collections.emptyMap();
         }
-        OpenAPI openAPI = openApiOptional.get();
+        OpenAPI openAPI = apiSpecOptional.get().openAPI();
 
-        // 2. Find the operation within that specific spec
-        Optional<OperationDetails> opDetailsOptional = findOperationDetailsById(openAPI, operationId);
+        Optional<SnippetService.OperationDetails> opDetailsOptional = snippetService.findOperationDetailsById(openAPI, operationId);
+        if (opDetailsOptional.isEmpty()) {
+            log.warn("Cannot get responses. Operation not found for id: {}", operationId);
+            return Collections.emptyMap();
+        }
+        Operation operation = opDetailsOptional.get().operation();
 
-        if (opDetailsOptional.isEmpty() || opDetailsOptional.get().operation().getResponses() == null) {
-            return responseExamples;
+        Map<String, ResponseInfo> responseExamples = new LinkedHashMap<>();
+        if (operation.getResponses() == null) {
+            return Collections.emptyMap();
         }
 
-        // 3. Process responses as before
-        opDetailsOptional.get().operation().getResponses().forEach((statusCode, apiResponse) -> {
-            // Pass the openAPI object to the resolver
-            ApiResponse resolvedResponse = resolveResponseRef(openAPI, apiResponse);
-            if (resolvedResponse == null) return;
+        // Iterate through each defined response (e.g., "200", "404")
+        operation.getResponses().forEach((statusCode, response) -> {
+            ApiResponse resolvedResponse = response;
+            // Resolve $ref for ApiResponse if it exists (e.g., #/components/responses/NotFound)
+            if (response.get$ref() != null) {
+                String ref = response.get$ref().substring("#/components/responses/".length());
+                resolvedResponse = openAPI.getComponents().getResponses().get(ref);
+            }
 
-            String description = resolvedResponse.getDescription();
-            String exampleJson = extractExampleJsonFromResponse(resolvedResponse);
+            if (resolvedResponse != null) {
+                String description = resolvedResponse.getDescription();
+                String exampleJson = "{}"; // Default to empty JSON
 
-            responseExamples.put(statusCode, new ResponseInfo(description, exampleJson));
+                if (resolvedResponse.getContent() != null && resolvedResponse.getContent().containsKey("application/json")) {
+                    MediaType mediaType = resolvedResponse.getContent().get("application/json");
+                    exampleJson = generateExampleForResponse(mediaType, openAPI);
+                }
+                responseExamples.put(statusCode, new ResponseInfo(description, exampleJson));
+            }
         });
 
         return responseExamples;
     }
 
     /**
-     * Follows a $ref link in a response to get the actual ApiResponse object from the correct spec.
+     * Generates an example JSON string for a given response MediaType.
+     * It prioritizes explicit examples and falls back to schema-based generation.
      */
-    private ApiResponse resolveResponseRef(OpenAPI openAPI, ApiResponse response) {
-        if (response.get$ref() != null) {
-            String ref = response.get$ref().substring("#/components/responses/".length());
-            // Use the passed-in openAPI object
-            return openAPI.getComponents().getResponses().get(ref);
-        }
-        return response;
-    }
-
-    /**
-     * Extracts a pretty-printed JSON example from an ApiResponse object.
-     */
-    private String extractExampleJsonFromResponse(ApiResponse response) {
-        Content content = response.getContent();
-        if (content == null || !content.containsKey("application/json")) {
-            return "{\n  \"message\": \"" + StringUtils.capitalize(response.getDescription()) + "\"\n}";
-        }
-
-        MediaType mediaType = content.get("application/json");
+    private String generateExampleForResponse(MediaType mediaType, OpenAPI openAPI) {
+        // Priority 1: Use explicit examples from the spec
         if (mediaType.getExamples() != null && !mediaType.getExamples().isEmpty()) {
             Example example = mediaType.getExamples().values().iterator().next();
             if (example.getValue() != null) {
-                try {
-                    // Use the injected objectMapper bean
-                    return objectMapper.writeValueAsString(example.getValue());
-                } catch (JsonProcessingException e) {
-                    log.error("Error serializing response example JSON", e);
-                    return "{\n  \"error\": \"Could not generate response example.\"\n}";
-                }
+                return prettyPrintJson(example.getValue());
             }
         }
-        return "{\n  \"message\": \"No example available for this response.\"\n}";
+
+        // Priority 2: Generate a payload from the schema
+        if (mediaType.getSchema() != null) {
+            Object generatedExample = generateExampleFromSchema(mediaType.getSchema(), openAPI, new HashSet<>());
+            if (generatedExample != null) {
+                return prettyPrintJson(generatedExample);
+            }
+        }
+
+        return "{}";
+    }
+
+    private String prettyPrintJson(Object object) {
+        try {
+            // Use the pretty printer for consistent, readable output.
+            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(object);
+        } catch (JsonProcessingException e) {
+            log.error("Error serializing example JSON for response", e);
+            return "{\n  \"error\": \"Could not generate example payload.\"\n}";
+        }
     }
 
     /**
-     * Finds an operation by its operationId within a specific OpenAPI spec.
+     * Recursively generates an example value from a given schema.
+     * This logic is mirrored from SnippetService to ensure consistency.
      */
-    private Optional<OperationDetails> findOperationDetailsById(OpenAPI openAPI, String operationId) {
-        if (openAPI.getPaths() == null) {
-            return Optional.empty();
-        }
-        for (Map.Entry<String, PathItem> pathEntry : openAPI.getPaths().entrySet()) {
-            for (Map.Entry<PathItem.HttpMethod, Operation> opEntry : pathEntry.getValue().readOperationsMap().entrySet()) {
-                Operation operation = opEntry.getValue();
-                if (operation != null && operationId.equals(operation.getOperationId())) {
-                    return Optional.of(new OperationDetails(pathEntry.getKey(), opEntry.getKey(), operation));
-                }
+    private Object generateExampleFromSchema(Schema<?> schema, OpenAPI openAPI, Set<String> visitedRefs) {
+        // Handle $ref and prevent circular loops
+        if (schema.get$ref() != null) {
+            if (visitedRefs.contains(schema.get$ref())) {
+                return "circular reference";
             }
+            visitedRefs.add(schema.get$ref());
+            String ref = schema.get$ref().substring("#/components/schemas/".length());
+            schema = openAPI.getComponents().getSchemas().get(ref);
         }
-        return Optional.empty();
+
+        if (schema == null) {
+            return null;
+        }
+
+        if (schema.getExample() != null) {
+            return schema.getExample();
+        }
+        if (schema.getDefault() != null) {
+            return schema.getDefault();
+        }
+
+        String type = schema.getType();
+        if (type == null) return null;
+
+        return switch (type) {
+            case "string" -> generateStringExample(schema);
+            case "integer" -> generateIntegerExample(schema);
+            case "number" -> generateNumberExample(schema);
+            case "boolean" -> true;
+            case "object" -> {
+                Map<String, Object> exampleJson = new LinkedHashMap<>();
+                Map<String, Schema> properties = schema.getProperties();
+                if (properties != null) {
+                    for (Map.Entry<String, Schema> entry : properties.entrySet()) {
+                        exampleJson.put(entry.getKey(), generateExampleFromSchema(entry.getValue(), openAPI, new HashSet<>(visitedRefs)));
+                    }
+                }
+                yield exampleJson;
+            }
+            case "array" -> {
+                Schema<?> itemsSchema = schema.getItems();
+                if (itemsSchema != null) {
+                    yield List.of(generateExampleFromSchema(itemsSchema, openAPI, visitedRefs));
+                }
+                yield Collections.emptyList();
+            }
+            default -> null;
+        };
+    }
+
+    private String generateStringExample(Schema<?> propertySchema) {
+        if (propertySchema.getEnum() != null && !propertySchema.getEnum().isEmpty()) {
+            return propertySchema.getEnum().get(0).toString();
+        }
+        String format = propertySchema.getFormat();
+        if (format != null) {
+            return switch (format) {
+                case "date" -> "2024-07-21";
+                case "date-time" -> "2024-07-21T14:30:00Z";
+                case "email" -> "user@example.com";
+                case "uuid" -> UUID.randomUUID().toString();
+                case "uri" -> "https://example.com/resource/123";
+                default -> "string";
+            };
+        }
+        return "string";
+    }
+
+    private Integer generateIntegerExample(Schema<?> propertySchema) {
+        if (propertySchema.getMinimum() != null) {
+            return propertySchema.getMinimum().intValue();
+        }
+        return 1000;
+    }
+
+    private Double generateNumberExample(Schema<?> propertySchema) {
+        if (propertySchema.getMinimum() != null) {
+            return propertySchema.getMinimum().doubleValue();
+        }
+        return 10.5;
     }
 }

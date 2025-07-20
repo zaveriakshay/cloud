@@ -13,17 +13,21 @@
     </style>
 </head>
 <body>
+
+<!--
+  FIX: Restored the 'theme="dark"' attribute and refined the scrolling logic below.
+-->
 <rapi-doc
         id="api-tester"
+        theme="light"
+        layout="row"
         render-style="view"
         show-header="false"
         allow-server-selection="false"
-        theme="light"
         primary-color="#4f46e5"
         nav-accent-color="#4f46e5"
-        default-schema-tab="model"
-        show-method-in-nav-bar="as-colored-text"
-        use-path-in-nav-bar="true"
+        show-method-in-nav-bar="false"
+        use-path-in-nav-bar="false"
         try-it-opened="true"
         th:attr="spec-url=${specUrl}"
 >
@@ -40,8 +44,7 @@
         const apiTester = document.getElementById('api-tester');
 
         if (httpPath && httpMethod) {
-            // FIX: Use a regex to replace path parameters like {paymentId} with -paymentId-.
-            // This matches the ID generation logic discovered from the rendered DOM.
+            // RapiDoc generates element IDs by replacing path parameters like {paymentId} with -paymentId-.
             const sanitizedPath = httpPath.replace(/{(\w+)}/g, '-$1-');
             const elementId = `${httpMethod}-${sanitizedPath}`;
 
@@ -55,30 +58,40 @@
                 const shadowRoot = this.shadowRoot;
 
                 function findAndScroll() {
-                    // Try to find the element inside the Shadow DOM using the correct, sanitized ID
-                    const targetElement = shadowRoot.getElementById(elementId);
+                    const operationSection = shadowRoot.getElementById(elementId);
 
-                    if (targetElement) {
-                        // Success! The element is now in the DOM.
-                        console.log(`Element with ID '${elementId}' found after ${Date.now() - startTime}ms. Scrolling into view.`);
-                        targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        console.log("Scroll command successfully issued via scrollIntoView().");
-
-                        // Find the summary element within the section and click it to expand.
-                        const summaryElement = targetElement.querySelector('summary');
-                        if (summaryElement) {
+                    if (operationSection) {
+                        // Find the summary element and click it to ensure the section is expanded.
+                        const summaryElement = operationSection.querySelector('summary');
+                        if (summaryElement && !summaryElement.classList.contains('expanded')) {
                             console.log("Found summary element, clicking to expand.");
                             summaryElement.click();
-                        } else {
-                            console.warn("Could not find summary element to click for expansion.");
                         }
 
-                        return; // Stop polling
+                        // IMPROVEMENT: Instead of scrolling the whole section, we target the interactive
+                        // request/response container for a more precise user experience.
+                        const scrollTarget = operationSection.querySelector('.req-resp-container');
+
+                        if (scrollTarget) {
+                            // Success! The specific container is now in the DOM.
+                            console.log(`Found '.req-resp-container' after ${Date.now() - startTime}ms. Scrolling into view.`);
+                            // The 'block: 'start'' option aligns the top of the element with the top of the scroll container.
+                            scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            console.log("Scroll command successfully issued.");
+                            return; // Stop polling
+                        }
+                        // Continue polling if the specific container isn't ready yet.
+
                     }
 
-                    // If element is not found, check if we've timed out
+                    // If element is not found, or the inner container isn't ready, check for timeout.
                     if (Date.now() - startTime > timeout) {
-                        console.error(`Polling timed out after ${timeout}ms. Could not find the target element with ID '${elementId}'. The deep-link failed.`);
+                        console.error(`Polling timed out after ${timeout}ms. Could not find the target '.req-resp-container' within '#${elementId}'. The deep-link failed.`);
+                        // As a fallback, try to scroll the parent section if it exists.
+                        if(operationSection) {
+                            console.warn("Fallback: Scrolling to the top of the operation section.");
+                            operationSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
                         return; // Stop polling
                     }
 

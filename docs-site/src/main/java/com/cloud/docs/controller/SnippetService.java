@@ -1,6 +1,5 @@
 package com.cloud.docs.controller;
 
-import com.cloud.docs.controller.ApiRegistryService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.models.OpenAPI;
@@ -8,6 +7,7 @@ import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.PathItem;
 import io.swagger.v3.oas.models.examples.Example;
 import io.swagger.v3.oas.models.media.MediaType;
+import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.parameters.RequestBody;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,35 +21,39 @@ import java.util.*;
 @Slf4j
 public class SnippetService {
 
-    // Depends on the new registry service instead of a single OpenAPI bean
     private final ApiRegistryService apiRegistry;
     private final ObjectMapper objectMapper;
 
     public record OperationDetails(String path, PathItem.HttpMethod method, Operation operation) {}
 
     /**
-     * Generates a code snippet, now requiring the API title and version for context.
+     * Generates a code snippet for a given operation within a specific API.
+     *
+     * @param apiId       The unique ID of the API specification.
+     * @param operationId The ID of the operation (e.g., "create-payment").
+     * @param target      The language target (e.g., "python").
+     * @param client      The client library (e.g., "requests").
+     * @return The generated code snippet as a string.
      */
-    public String generateSnippet(String apiTitle, String apiVersion, String operationId, String target, String client) {
+    public String generateSnippet(String apiId, String operationId, String target, String client) {
         if ("get-started".equals(operationId)) {
             return "# Select an API and an endpoint to see an example request.";
         }
 
-        Optional<OpenAPI> openApiOptional = apiRegistry.getApi(apiTitle, apiVersion);
-        if (openApiOptional.isEmpty()) {
-            return "# API Specification not found for " + apiTitle + " v" + apiVersion;
+        Optional<ApiSpecification> apiSpecOptional = apiRegistry.getSpecification(apiId);
+        if (apiSpecOptional.isEmpty()) {
+            return "# API Specification not found for ID: " + apiId;
         }
-        OpenAPI openAPI = openApiOptional.get();
+        OpenAPI openAPI = apiSpecOptional.get().openAPI();
 
         Optional<OperationDetails> opDetailsOptional = findOperationDetailsById(openAPI, operationId);
         if (opDetailsOptional.isEmpty()) {
-            log.warn("No operation found for ID: {} in API: {} v{}", operationId, apiTitle, apiVersion);
+            log.warn("No operation found for ID: {} in API: {}", operationId, apiId);
             return "# Operation not found in the specified OpenAPI spec.";
         }
         OperationDetails opDetails = opDetailsOptional.get();
         String payload = getPayloadForOperation(openAPI, opDetails.operation());
 
-        // The switch statement now passes the specific openAPI object to each generator
         return switch (target.toLowerCase()) {
             case "shell" -> generateCurlSnippet(openAPI, opDetails, payload);
             case "python" -> generatePythonSnippet(openAPI, opDetails, payload);
@@ -66,17 +70,20 @@ public class SnippetService {
     }
 
     /**
-     * Gets the grouped operations for a specific API title and version.
+     * Gets API operations grouped by tag for a specific API specification.
+     *
+     * @param apiId The unique ID of the API specification.
+     * @return A map of tag names to a list of operations under that tag.
      */
-    public Map<String, List<OperationInfo>> getGroupedApiOperations(String apiTitle, String apiVersion) {
+    public Map<String, List<OperationInfo>> getGroupedApiOperations(String apiId) {
         Map<String, List<OperationInfo>> grouped = new LinkedHashMap<>();
-        Optional<OpenAPI> openApiOptional = apiRegistry.getApi(apiTitle, apiVersion);
+        Optional<ApiSpecification> apiSpecOptional = apiRegistry.getSpecification(apiId);
 
-        if (openApiOptional.isEmpty()) {
-            log.warn("Cannot get operations. OpenAPI spec not found for: {} v{}", apiTitle, apiVersion);
+        if (apiSpecOptional.isEmpty()) {
+            log.warn("Cannot get operations. OpenAPI spec not found for apiId: {}", apiId);
             return grouped;
         }
-        OpenAPI openAPI = openApiOptional.get();
+        OpenAPI openAPI = apiSpecOptional.get().openAPI();
 
         if (openAPI.getPaths() == null) return grouped;
 
@@ -95,8 +102,6 @@ public class SnippetService {
         return grouped;
     }
 
-    // All private helper methods now require the specific OpenAPI object to be passed in.
-
     public Optional<OperationDetails> findOperationDetailsById(OpenAPI openAPI, String operationId) {
         if (openAPI.getPaths() == null) return Optional.empty();
         for (Map.Entry<String, PathItem> pathEntry : openAPI.getPaths().entrySet()) {
@@ -109,30 +114,188 @@ public class SnippetService {
         return Optional.empty();
     }
 
+    /**
+     * REFACTORED: Generates a request body payload. It first tries to find a pre-defined example.
+     * If none exists, it intelligently generates a payload from the schema itself.
+     */
     private String getPayloadForOperation(OpenAPI openAPI, Operation operation) {
-        if (operation == null || operation.getRequestBody() == null) return "";
+        if (operation == null || operation.getRequestBody() == null) {
+            return "";
+        }
+
         RequestBody requestBody = operation.getRequestBody();
+        // Resolve $ref for RequestBody if it exists
         if (requestBody.get$ref() != null) {
             String ref = requestBody.get$ref().substring("#/components/requestBodies/".length());
             requestBody = openAPI.getComponents().getRequestBodies().get(ref);
         }
-        if (requestBody == null || requestBody.getContent() == null || !requestBody.getContent().containsKey("application/json")) return "";
+
+        if (requestBody == null || requestBody.getContent() == null || !requestBody.getContent().containsKey("application/json")) {
+            return "";
+        }
+
         MediaType mediaType = requestBody.getContent().get("application/json");
+
+        // Priority 1: Use explicit examples from the spec
         if (mediaType.getExamples() != null && !mediaType.getExamples().isEmpty()) {
             Example example = mediaType.getExamples().values().iterator().next();
             if (example.getValue() != null) {
-                try {
-                    return objectMapper.writeValueAsString(example.getValue());
-                } catch (JsonProcessingException e) {
-                    log.error("Error serializing example JSON for operation {}", operation.getOperationId(), e);
-                    return "{\n  \"error\": \"Could not generate example payload.\"\n}";
-                }
+                return prettyPrintJson(example.getValue());
             }
         }
+
+        // Priority 2: Generate a payload from the schema
+        if (mediaType.getSchema() != null) {
+            Map<String, Object> generatedExample = generateExampleFromSchema(mediaType.getSchema(), openAPI, new HashSet<>());
+            if (!generatedExample.isEmpty()) {
+                return prettyPrintJson(generatedExample);
+            }
+        }
+
         return "";
     }
 
-    // --- SNIPPET GENERATORS (Updated to accept OpenAPI object) ---
+    private String prettyPrintJson(Object object) {
+        try {
+            // FIX: Use the pretty printer for consistent, readable output.
+            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(object);
+        } catch (JsonProcessingException e) {
+            log.error("Error serializing example JSON", e);
+            return "{\n  \"error\": \"Could not generate example payload.\"\n}";
+        }
+    }
+
+    /**
+     * Recursively generates an example Map from a given schema.
+     *
+     * @param schema The schema to generate an example for.
+     * @param openAPI The full OpenAPI model for resolving references.
+     * @param visitedRefs A set to track visited schemas and prevent circular reference loops.
+     * @return A map representing the example JSON object.
+     */
+    private Map<String, Object> generateExampleFromSchema(Schema<?> schema, OpenAPI openAPI, Set<String> visitedRefs) {
+        // Handle $ref and prevent circular loops
+        if (schema.get$ref() != null) {
+            if (visitedRefs.contains(schema.get$ref())) {
+                return Map.of("...", "circular reference");
+            }
+            visitedRefs.add(schema.get$ref());
+            String ref = schema.get$ref().substring("#/components/schemas/".length());
+            schema = openAPI.getComponents().getSchemas().get(ref);
+        }
+
+        if (schema == null) {
+            return Collections.emptyMap();
+        }
+
+        // If the schema itself has a top-level example, use it.
+        if (schema.getExample() instanceof Map) {
+            return (Map<String, Object>) schema.getExample();
+        }
+
+        Map<String, Object> exampleJson = new LinkedHashMap<>();
+        Map<String, Schema> properties = schema.getProperties();
+
+        if (properties != null) {
+            for (Map.Entry<String, Schema> entry : properties.entrySet()) {
+                String propertyName = entry.getKey();
+                Schema<?> propertySchema = entry.getValue();
+                // Pass a new copy of visitedRefs for each property branch to allow non-circular reuse of schemas
+                exampleJson.put(propertyName, generateExampleValueForProperty(propertySchema, openAPI, new HashSet<>(visitedRefs)));
+            }
+        }
+
+        return exampleJson;
+    }
+
+    /**
+     * Generates a single example value for a property schema.
+     *
+     * @param propertySchema The schema for the specific property.
+     * @param openAPI The full OpenAPI model for resolving references.
+     * @param visitedRefs A set to track visited schemas and prevent circular reference loops.
+     * @return An example value (e.g., String, Integer, Map, List).
+     */
+    private Object generateExampleValueForProperty(Schema<?> propertySchema, OpenAPI openAPI, Set<String> visitedRefs) {
+        // Priority 1: Use explicit example on the property
+        if (propertySchema.getExample() != null) {
+            return propertySchema.getExample();
+        }
+
+        // Priority 2: Use default value
+        if (propertySchema.getDefault() != null) {
+            return propertySchema.getDefault();
+        }
+
+        // Handle $ref and prevent circular loops
+        if (propertySchema.get$ref() != null) {
+            if (visitedRefs.contains(propertySchema.get$ref())) {
+                return "circular reference";
+            }
+            visitedRefs.add(propertySchema.get$ref());
+            String ref = propertySchema.get$ref().substring("#/components/schemas/".length());
+            propertySchema = openAPI.getComponents().getSchemas().get(ref);
+        }
+
+        if (propertySchema == null) {
+            return null;
+        }
+
+        // Priority 3: Generate based on type
+        String type = propertySchema.getType();
+        if (type == null) return null;
+
+        return switch (type) {
+            case "string" -> generateStringExample(propertySchema);
+            case "integer" -> generateIntegerExample(propertySchema);
+            case "number" -> generateNumberExample(propertySchema);
+            case "boolean" -> true;
+            case "object" -> generateExampleFromSchema(propertySchema, openAPI, visitedRefs);
+            case "array" -> {
+                Schema<?> itemsSchema = propertySchema.getItems();
+                if (itemsSchema != null) {
+                    // Generate an array with one example item
+                    yield List.of(generateExampleValueForProperty(itemsSchema, openAPI, visitedRefs));
+                }
+                yield Collections.emptyList();
+            }
+            default -> null;
+        };
+    }
+
+    private String generateStringExample(Schema<?> propertySchema) {
+        if (propertySchema.getEnum() != null && !propertySchema.getEnum().isEmpty()) {
+            return propertySchema.getEnum().get(0).toString();
+        }
+        String format = propertySchema.getFormat();
+        if (format != null) {
+            return switch (format) {
+                case "date" -> "2024-07-21";
+                case "date-time" -> "2024-07-21T14:30:00Z";
+                case "email" -> "user@example.com";
+                case "uuid" -> UUID.randomUUID().toString();
+                default -> "string";
+            };
+        }
+        return "string";
+    }
+
+    private Integer generateIntegerExample(Schema<?> propertySchema) {
+        if (propertySchema.getMinimum() != null) {
+            return propertySchema.getMinimum().intValue();
+        }
+        return 1000; // A reasonable default for amounts in cents
+    }
+
+    private Double generateNumberExample(Schema<?> propertySchema) {
+        if (propertySchema.getMinimum() != null) {
+            return propertySchema.getMinimum().doubleValue();
+        }
+        return 10.5;
+    }
+
+    // --- SNIPPET GENERATORS ---
+    // (These remain private and are unchanged)
 
     private String generateCurlSnippet(OpenAPI openAPI, OperationDetails details, String payload) {
         String method = details.method().toString();
@@ -223,8 +386,7 @@ public class SnippetService {
     private String generateCSharpSnippet(OpenAPI openAPI, OperationDetails details, String payload) {
         String method = details.method().toString();
         String path = details.path();
-        StringBuilder snippet = new StringBuilder("using RestSharp;\n");
-        snippet.append("using RestSharp.Authenticators;\n\n");
+        StringBuilder snippet = new StringBuilder("using RestSharp;\n\n");
         snippet.append("var options = new RestClientOptions(\"").append(openAPI.getServers().get(0).getUrl()).append("\");\n");
         snippet.append("var client = new RestClient(options);\n\n");
         snippet.append("var request = new RestRequest(\"").append(path).append("\", Method.").append(StringUtils.capitalize(method.toLowerCase())).append(");\n");
@@ -273,7 +435,7 @@ public class SnippetService {
         StringBuilder snippet = new StringBuilder("package main\n\n");
         snippet.append("import (\n");
         snippet.append("    \"fmt\"\n");
-        snippet.append("    \"io/ioutil\"\n");
+        snippet.append("    \"io\"\n");
         snippet.append("    \"log\"\n");
         snippet.append("    \"net/http\"\n");
         if (!payload.isEmpty()) {
@@ -299,7 +461,7 @@ public class SnippetService {
         snippet.append("    res, err := client.Do(req)\n");
         snippet.append("    if err != nil {\n        log.Fatal(err)\n    }\n");
         snippet.append("    defer res.Body.Close()\n\n");
-        snippet.append("    body, err := ioutil.ReadAll(res.Body)\n");
+        snippet.append("    body, err := io.ReadAll(res.Body)\n");
         snippet.append("    if err != nil {\n        log.Fatal(err)\n    }\n");
         snippet.append("    fmt.Println(string(body))\n");
         snippet.append("}");
@@ -327,16 +489,15 @@ public class SnippetService {
     private String generateSwiftSnippet(OpenAPI openAPI, OperationDetails details, String payload) {
         String method = details.method().toString().toUpperCase();
         String path = details.path();
-        StringBuilder snippet = new StringBuilder("import Foundation\n\n");
+        StringBuilder snippet = new StringBuilder("import Foundation\n#if canImport(FoundationNetworking)\nimport FoundationNetworking\n#endif\n\n");
         snippet.append("let headers = [\n");
-        snippet.append("    \"Authorization\": \"Bearer sk_test_...\"\n");
+        snippet.append("    \"Authorization\": \"Bearer sk_test_...\",\n");
+        snippet.append("    \"Content-Type\": \"application/json\"\n");
         snippet.append("]\n\n");
         String postDataVar = "nil";
         if (!payload.isEmpty()) {
-            snippet.insert(0, "import Foundation\n#if canImport(FoundationNetworking)\nimport FoundationNetworking\n#endif\n\n");
             snippet.append("let postData = Data(\"\"\"\n").append(payload).append("\n\"\"\".utf8)\n\n");
             postDataVar = "postData";
-            snippet.insert(snippet.indexOf("]") + 1, ",\n    \"Content-Type\": \"application/json\"");
         }
         snippet.append("var request = URLRequest(url: URL(string: \"").append(openAPI.getServers().get(0).getUrl()).append(path).append("\")!,\n");
         snippet.append("                                cachePolicy: .useProtocolCachePolicy,\n");
@@ -391,32 +552,5 @@ public class SnippetService {
         snippet.append("    }\n");
         snippet.append("}");
         return snippet.toString();
-    }
-
-    /**
-     * Finds the primary tag for a given operationId.
-     * This is used to construct deep links for Swagger UI.
-     */
-    public Optional<String> getTagForOperation(String apiTitle, String apiVersion, String operationId) {
-        Optional<OpenAPI> openApiOptional = apiRegistry.getApi(apiTitle, apiVersion);
-        if (openApiOptional.isEmpty()) {
-            return Optional.empty();
-        }
-        OpenAPI openAPI = openApiOptional.get();
-
-        if (openAPI.getPaths() == null) return Optional.empty();
-
-        for (Map.Entry<String, PathItem> pathEntry : openAPI.getPaths().entrySet()) {
-            for (Map.Entry<PathItem.HttpMethod, Operation> opEntry : pathEntry.getValue().readOperationsMap().entrySet()) {
-                Operation operation = opEntry.getValue();
-                if (operation != null && operationId.equals(operation.getOperationId())) {
-                    if (operation.getTags() != null && !operation.getTags().isEmpty()) {
-                        // Return the first tag, which is standard practice
-                        return Optional.of(operation.getTags().get(0));
-                    }
-                }
-            }
-        }
-        return Optional.empty(); // Return empty if not found
     }
 }

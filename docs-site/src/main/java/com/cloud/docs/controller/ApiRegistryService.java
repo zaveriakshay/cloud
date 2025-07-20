@@ -10,57 +10,42 @@ import java.util.stream.Collectors;
 public class ApiRegistryService {
 
     private final List<ApiSpecification> specifications;
-    private final Map<String, List<ApiSpecification>> specsByTitle;
+    private final Map<String, ApiSpecification> specsById;
 
-    public ApiRegistryService(List<ApiSpecification> specifications) {
-        this.specifications = specifications;
-        this.specsByTitle = specifications.stream()
-                .sorted(Comparator.comparing(ApiSpecification::version).reversed())
-                .collect(Collectors.groupingBy(
-                        ApiSpecification::title,
-                        LinkedHashMap::new,
-                        Collectors.toList()
-                ));
-    }
+    public ApiRegistryService(List<ApiSpecification> loadedSpecifications) {
+        // Sort specs for a predictable order in the UI
+        loadedSpecifications.sort(Comparator.comparing(ApiSpecification::title)
+                .thenComparing(ApiSpecification::version));
 
-    public Map<String, List<String>> getAvailableApis() {
-        return specsByTitle.entrySet().stream()
+        this.specifications = Collections.unmodifiableList(loadedSpecifications);
+
+        // Create a map for quick lookups by the unique ID
+        this.specsById = this.specifications.stream()
                 .collect(Collectors.toMap(
-                        Map.Entry::getKey,
-                        entry -> entry.getValue().stream().map(ApiSpecification::version).collect(Collectors.toList()),
-                        (v1, v2) -> v1,
+                        ApiSpecification::id,
+                        spec -> spec,
+                        (s1, s2) -> s1, // In case of ID collision, take the first one
                         LinkedHashMap::new
                 ));
     }
 
-    public Optional<OpenAPI> getApi(String title, String version) {
-        return specsByTitle.getOrDefault(title, Collections.emptyList()).stream()
-                .filter(spec -> spec.version().equals(version))
-                .map(ApiSpecification::openAPI)
-                .findFirst();
+    /**
+     * Returns a collection of all loaded API specifications.
+     */
+    public Collection<ApiSpecification> getSpecifications() {
+        return specifications;
     }
 
     /**
-     * FIX: New method to get the full ApiSpecification object.
-     * This is needed by DocsController to access metadata like the sub-path.
+     * Retrieves a specific API specification by its unique ID.
      */
-    public Optional<ApiSpecification> getApiSpecification(String title, String version) {
-        return specsByTitle.getOrDefault(title, Collections.emptyList()).stream()
-                .filter(spec -> spec.version().equals(version))
-                .findFirst(); // Returns the full object
+    public Optional<ApiSpecification> getSpecification(String id) {
+        return Optional.ofNullable(specsById.get(id));
     }
 
     /**
-     * Gets the raw, unmodified content of the spec file.
-     * This is the robust way to pass the spec to the API tester.
+     * Gets the first API in the sorted list, used as the default on page load.
      */
-    public Optional<String> getApiRawContent(String title, String version) {
-        return specsByTitle.getOrDefault(title, Collections.emptyList()).stream()
-                .filter(spec -> spec.version().equals(version))
-                .map(ApiSpecification::rawContent)
-                .findFirst();
-    }
-
     public Optional<ApiSpecification> getFirstApi() {
         return specifications.stream().findFirst();
     }
