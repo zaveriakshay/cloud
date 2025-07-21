@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<body>
+<main th:fragment="panel"
+      id="middle-panel"
+      class="flex-1 bg-white overflow-y-auto"
+      hx-get="/space/editor/getting-started"
+      hx-trigger="load"
+      hx-swap="innerHTML">
+    <!-- The editor will be loaded here by HTMX on page load -->
+    <div class="p-12 text-center text-slate-400">
+        <p>Loading editor...</p>
+    </div>
+</main>
+</body>
+</html>

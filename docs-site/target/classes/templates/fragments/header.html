@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<header th:fragment="main" class="bg-white/95 backdrop-blur-sm sticky top-0 z-40 border-b border-slate-200">
+    <!-- First line: Logo, Search, Auth -->
+    <div class="px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center justify-between h-16">
+            <!-- Left: Logo -->
+            <div class="flex-shrink-0">
+                <a th:href="@{/}" class="flex items-center gap-2">
+                    <span class="text-xl font-bold text-indigo-600">noqodiDocs</span>
+                </a>
+            </div>
+
+            <!-- Center: Search Modal Trigger -->
+            <div class="flex-1 flex justify-center px-8 lg:px-16">
+                <button @click.prevent="openSearchModal()" type="button" class="w-full max-w-lg relative text-left">
+                    <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                        <svg class="h-5 w-5 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                        </svg>
+                    </div>
+                    <div class="block w-full rounded-md border-slate-300 bg-slate-50 py-2 pl-10 pr-20 text-sm shadow-sm text-slate-500">
+                        Search documentation...
+                    </div>
+                    <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                        <kbd class="font-sans text-xs font-medium text-slate-400 border border-slate-300 rounded px-1.5 py-0.5">⌘K</kbd>
+                    </div>
+                </button>
+            </div>
+
+            <!-- Right: Actions -->
+            <div class="flex items-center gap-4">
+                <button @click="aiPanelOpen = !aiPanelOpen" class="p-2 rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors" aria-label="Ask AI">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.898 20.572L16.5 21.75l-.398-1.178a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.178-.398a2.25 2.25 0 001.423-1.423L16.5 15.75l.398 1.178a2.25 2.25 0 001.423 1.423l1.178.398-1.178.398a2.25 2.25 0 00-1.423 1.423z" />
+                    </svg>
+                </button>
+                <a th:href="@{/signin}" class="hidden sm:block text-sm font-medium text-slate-700 hover:text-indigo-600 transition-colors">Sign in</a>
+                <a th:href="@{/signup}" class="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-md shadow-sm hover:bg-indigo-700 transition-colors">Create account</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Second line: Navigation Tabs and Dropdown -->
+    <div class="px-4 sm:px-6 lg:px-8 border-t border-slate-200/80">
+        <div class="flex items-center justify-between h-12">
+            <!-- Left: Hub Tabs -->
+            <nav class="flex -mb-px" aria-label="Hubs">
+                <a th:each="hub : ${docsHubRegistry.getAllHubs()}"
+                   th:href="@{/hub/{hubName}(hubName=${hub.hubName})}"
+                   th:text="${hub.getArticleTree().title()}"
+                   th:classappend="${activeTab == hub.hubName} ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'"
+                   class="whitespace-nowrap py-3 px-3 border-b-2 font-medium text-sm transition-colors">
+                </a>
+            </nav>
+
+            <!-- Right: API Dropdown -->
+            <div x-data="{ open: false, isActive: /*[[${allApis.?[id == activeTab].size() > 0}]]*/ false }" class="relative">
+                <button @click="open = !open" @click.away="open = false"
+                        class="flex items-center gap-1 whitespace-nowrap py-3 px-3 border-b-2 font-medium text-sm transition-colors"
+                        :class="isActive ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'">
+                    <span>APIs & SDKs</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 transition-transform" :class="{ 'rotate-180': open }">
+                        <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
+                    </svg>
+                </button>
+                <div x-show="open" x-transition x-cloak class="absolute right-0 mt-2 w-56 origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+                    <div class="py-1" role="menu" aria-orientation="vertical" aria-labelledby="menu-button" tabindex="-1">
+                        <a th:each="api : ${allApis}"
+                           th:href="@{/api(apiId=${api.id})}"
+                           class="block px-4 py-2 text-sm"
+                           th:classappend="${activeTab == api.id} ? 'bg-indigo-50 text-indigo-600' : 'text-slate-700 hover:bg-slate-100'"
+                           role="menuitem" tabindex="-1"
+                           th:text="${api.title}">
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</header>
+
+</body>
+</html>

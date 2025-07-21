@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<body>
+<aside th:fragment="panel" class="flex-shrink-0 bg-white border-r border-slate-200/80 w-72 flex flex-col">
+    <!--
+      The header is now loaded from a reusable fragment.
+    -->
+    <div id="left-panel-header" th:replace="~{fragments/space-fragments :: left-panel-header(workspace=${@spaceService.getPageTree()})}">
+        <!-- This content is replaced by the fragment -->
+    </div>
+
+    <div class="flex-1 p-4 overflow-y-auto">
+        <!-- Container for new node forms at the root level -->
+        <div id="new-root-node-container"></div>
+
+        <!-- The Root of the Tree -->
+        <ul th:with="rootNode=${@spaceService.getPageTree()}"
+            class="space-y-1"
+            x-data="{}"
+            x-init="new Sortable($el, {
+                animation: 150,
+                group: 'nested',
+                handle: '.drag-handle',
+                ghostClass: 'sortable-ghost',
+                onEnd: (evt) => {
+                    let params = new URLSearchParams();
+                    Array.from(evt.to.children).forEach(el => {
+                        if(el.dataset.pageId) {
+                            params.append('pageIds[]', el.dataset.pageId);
+                        }
+                    });
+                    htmx.ajax('POST', '/space/reorder?parentId=' + evt.to.dataset.parentId, {
+                        body: params,
+                        swap: 'none'
+                    });
+                }
+            })"
+            th:data-parent-id="${rootNode.id}">
+            <!-- Render children of the root node -->
+            <th:block th:each="node : ${rootNode.children()}">
+                <li th:replace="~{fragments/space-fragments :: tree-node(node=${node})}"></li>
+            </th:block>
+        </ul>
+    </div>
+</aside>
+</body>
+</html>

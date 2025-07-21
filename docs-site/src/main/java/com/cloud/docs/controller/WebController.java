@@ -28,7 +28,6 @@ public class WebController {
 
     private final ApiRegistryService apiRegistry;
     private final SnippetService snippetService;
-    // Inject YAMLMapper to parse and modify the spec
     private final YAMLMapper yamlMapper;
 
     @GetMapping("/login")
@@ -63,9 +62,8 @@ public class WebController {
                 rawYamlContent = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
             }
 
-            // Parse the YAML, remove all description fields, and convert it back to a string
             Object yamlObject = yamlMapper.readValue(rawYamlContent, Object.class);
-            removeDescriptions(yamlObject); // Use the improved removal method
+            removeDescriptions(yamlObject);
             String modifiedYamlContent = yamlMapper.writeValueAsString(yamlObject);
 
             return ResponseEntity.ok()
@@ -80,28 +78,22 @@ public class WebController {
     }
 
     /**
-     * FIX: Recursively traverses a parsed YAML/JSON object and completely REMOVES 'description' fields.
-     * This is more robust than setting the value to an empty string.
-     *
-     * @param node The current object node (can be a Map or a List).
+     * Recursively traverses a parsed YAML/JSON object and completely REMOVES 'description' fields.
      */
     private void removeDescriptions(Object node) {
         if (node instanceof Map) {
             @SuppressWarnings("unchecked")
             Map<String, Object> map = (Map<String, Object>) node;
-            // Use an iterator to safely remove elements from the map while traversing it.
             Iterator<Map.Entry<String, Object>> iterator = map.entrySet().iterator();
             while (iterator.hasNext()) {
                 Map.Entry<String, Object> entry = iterator.next();
                 if ("description".equals(entry.getKey())) {
-                    iterator.remove(); // Remove the key-value pair entirely
+                    iterator.remove();
                 } else {
-                    // Otherwise, continue traversing deeper into the structure.
                     removeDescriptions(entry.getValue());
                 }
             }
         } else if (node instanceof List) {
-            // If the node is a list, iterate over its elements and recurse.
             @SuppressWarnings("unchecked")
             List<Object> list = (List<Object>) node;
             list.forEach(this::removeDescriptions);

@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org" xmlns:x-bind="http://www.w3.org/1999/xhtml">
+<body>
+
+<!-- FRAGMENT: Left Panel Header with Editable Title and Publish Button -->
+<div th:fragment="left-panel-header(workspace)" class="p-4 border-b">
+    <div class="flex items-center justify-between mb-2">
+        <div x-data="{ editing: false, title: '[[${workspace.title}]]' }"
+             @click.away="editing = false; if ($event.target.tagName !== 'INPUT') $refs.form.requestSubmit()"
+             class="flex-1 min-w-0">
+            <h2 x-show="!editing" @click="editing = true; $nextTick(() => $refs.input.focus())"
+                class="text-lg font-semibold text-slate-900 cursor-pointer truncate"
+                th:text="${workspace.title}">My Workspace</h2>
+            <form x-show="editing" x-ref="form" style="display: none;"
+                  hx-post="/space/rename" hx-target="#left-panel-header" hx-swap="outerHTML">
+                <input type="text" name="title" x-ref="input" x-model="title"
+                       class="text-lg font-semibold w-full border-0 p-0 focus:ring-0">
+            </form>
+        </div>
+
+        <div x-data="{ open: false }" class="relative ml-2">
+            <button @click="open = !open"
+                    class="px-3 py-1 bg-indigo-600 text-white text-sm font-semibold rounded-md shadow-sm hover:bg-indigo-700">
+                Publish
+            </button>
+            <div x-show="open" @click.away="open = false"
+                 x-transition
+                 class="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 p-2 z-10"
+                 style="display: none;">
+                <p class="text-sm text-slate-600 mb-2">Publish all changes to make them live.</p>
+                <form hx-post="/space/publish" hx-target="header" hx-swap="outerHTML">
+                    <button type="submit" @click="open = false"
+                            class="w-full px-3 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-md hover:bg-indigo-700">
+                        Publish to Web
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div x-data="{ open: false }" class="relative">
+        <button @click="open = !open"
+                class="w-full flex items-center justify-center p-1 rounded-md text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+                title="Add new page or section">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+            <span class="text-sm ml-2">Add Content</span>
+        </button>
+        <div x-show="open" @click.away="open = false" x-transition
+             class="absolute left-0 mt-2 w-48 bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 py-1 z-10"
+             style="display: none;">
+            <button th:hx-get="@{/space/add-node-form(parentId='root', isSection=false)}"
+                    hx-target="#new-root-node-container" hx-swap="innerHTML" @click="open = false"
+                    class="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">
+                New Page
+            </button>
+            <button th:hx-get="@{/space/add-node-form(parentId='root', isSection=true)}"
+                    hx-target="#new-root-node-container" hx-swap="innerHTML" @click="open = false"
+                    class="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">
+                New Section
+            </button>
+        </div>
+    </div>
+</div>
+
+
+<!-- FRAGMENT: Navigation node for the read-only published view -->
+<li th:fragment="published-nav-node(node)">
+    <a th:href="'#' + ${node.id()}"
+       class="block text-slate-600 hover:text-slate-900"
+       th:classappend="${!node.isSection()} ? 'font-normal' : 'font-medium'"
+       th:text="${node.title()}"></a>
+    <ul th:if="${node.isSection() and !node.children().isEmpty()}" class="pl-4 mt-2 space-y-2">
+        <th:block th:each="child : ${node.children()}">
+            <li th:replace="~{:: published-nav-node(node=${child})}"></li>
+        </th:block>
+    </ul>
+</li>
+
+<!--
+  FRAGMENT: Content node for the read-only published view
+  FIX: The structure is now a th:block to prevent extra div wrappers.
+  The recursive call is also wrapped in a th:block to ensure it replaces
+  itself correctly without nesting.
+-->
+<th:block th:fragment="published-content-node(node)">
+    <!-- Render the content for the current node if it's a page -->
+    <section th:if="${!node.isSection() and renderedContent.containsKey(node.id())}"
+             th:id="${node.id()}"
+             class="doc-section mb-16">
+
+        <div th:utext="${renderedContent.get(node.id())}"></div>
+
+        <!-- Next/Previous Navigation -->
+        <div th:if="${pageNavigation.containsKey(node.id())}" th:with="nav=${pageNavigation.get(node.id())}"
+             class="mt-12 flex justify-between border-t border-slate-200 pt-6 not-prose">
+            <div>
+                <a th:if="${nav.previous()}" th:href="'#' + ${nav.previous().id()}"
+                   class="inline-flex items-center text-slate-600 hover:text-indigo-600 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                    </svg>
+                    <div>
+                        <div class="text-xs text-slate-500">Previous</div>
+                        <div class="text-sm font-semibold" th:text="${nav.previous().title()}"></div>
+                    </div>
+                </a>
+            </div>
+            <div>
+                <a th:if="${nav.next()}" th:href="'#' + ${nav.next().id()}"
+                   class="inline-flex items-center text-slate-600 hover:text-indigo-600 transition-colors text-right">
+                    <div>
+                        <div class="text-xs text-slate-500">Next</div>
+                        <div class="text-sm font-semibold" th:text="${nav.next().title()}"></div>
+                    </div>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                    </svg>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Recurse for children if the current node is a section -->
+    <th:block th:if="${node.isSection()}">
+        <th:block th:each="child : ${node.children()}">
+            <th:block th:replace="~{:: published-content-node(node=${child}, renderedContent=${renderedContent}, pageNavigation=${pageNavigation})}"></th:block>
+        </th:block>
+    </th:block>
+</th:block>
+
+
+<!-- FRAGMENT: A single node in the navigation tree -->
+<li th:fragment="tree-node(node)"
+    th:attr="data-page-id=${node.id()}"
+    x-data="{ expanded: false, showActions: false }"
+    class="rounded-md group"
+    :class="{ 'bg-indigo-50': activePageId === '[[${node.id}]]' }">
+
+    <div @mouseenter="showActions = true" @mouseleave="showActions = false" class="flex items-center justify-between p-1 rounded-md hover:bg-slate-100">
+        <div class="flex items-center flex-1 min-w-0">
+            <svg class="w-5 h-5 text-slate-300 drag-handle cursor-move mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+            <button @click="expanded = !expanded" th:if="${node.isSection()}" class="mr-1 text-slate-400">
+                <svg class="w-4 h-4 transition-transform" :class="{ 'rotate-90': expanded }" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+            </button>
+            <svg th:unless="${node.isSection()}" class="w-4 h-4 text-slate-400 mr-1 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+            <a href="#"
+               class="text-sm truncate flex-1"
+               :class="{ 'font-semibold text-indigo-600': activePageId === '[[${node.id}]]', 'text-slate-700': activePageId !== '[[${node.id}]]' }"
+               @click.prevent="activePageId = '[[${node.id}]]'"
+               th:hx-get="@{/space/editor/{pageId}(pageId=${node.id})}"
+               hx-target="#middle-panel"
+               hx-swap="innerHTML">
+                <span th:text="${node.title()}">Page Title</span>
+            </a>
+        </div>
+        <div x-show="showActions" x-transition.opacity>
+            <div x-data="{ actionsOpen: false }" class="relative">
+                <button @click="actionsOpen = !actionsOpen" class="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" />
+                    </svg>
+                </button>
+                <div x-show="actionsOpen" @click.away="actionsOpen = false"
+                     class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 py-1 z-10"
+                     style="display: none;">
+                    <button th:if="${node.isSection()}"
+                            th:hx-get="@{/space/add-node-form(parentId=${node.id}, isSection=false)}"
+                            th:hx-target="'#children-of-' + ${node.id}"
+                            hx-swap="afterbegin"
+                            @click="expanded = true; actionsOpen = false"
+                            class="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">
+                        New Page
+                    </button>
+                    <button th:if="${node.isSection()}"
+                            th:hx-get="@{/space/add-node-form(parentId=${node.id}, isSection=true)}"
+                            th:hx-target="'#children-of-' + ${node.id}"
+                            hx-swap="afterbegin"
+                            @click="expanded = true; actionsOpen = false"
+                            class="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">
+                        New Section
+                    </button>
+                    <a href="#" class="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">Rename</a>
+                    <a href="#" class="block px-4 py-2 text-sm text-red-600 hover:bg-red-50">Delete</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    <ul th:if="${node.isSection()}" x-show="expanded" x-collapse
+        class="ml-4 pl-4 border-l border-slate-200 space-y-1 mt-1 sortable-list"
+        th:id="'children-of-' + ${node.id}"
+        th:data-parent-id="${node.id()}">
+        <th:block th:each="child : ${node.children()}">
+            <li th:replace="~{:: tree-node(node=${child})}"></li>
+        </th:block>
+    </ul>
+</li>
+
+<!-- FRAGMENT: Form for adding a new page or section -->
+<li th:fragment="add-node-form" class="p-1 bg-indigo-50 rounded-md">
+    <form hx-post="/space/add-node"
+          hx-target="this"
+          hx-swap="outerHTML"
+          class="flex items-center space-x-2"
+          @keydown.escape.window="$el.closest('li').remove()">
+        <input type="hidden" name="parentId" th:value="${parentId}">
+        <input type="hidden" name="isSection" th:value="${isSection}">
+        <input type="text" name="title"
+               th:placeholder="${isSection} ? 'New Section Title...' : 'New Page Title...'"
+               class="flex-1 text-sm border-indigo-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+               x-init="$el.focus()">
+        <button type="submit" class="text-sm font-semibold text-indigo-600 hover:text-indigo-800">Add</button>
+        <button type="button" @click="$el.closest('li').remove()" class="text-sm text-slate-500 hover:text-slate-700">&times;</button>
+    </form>
+</li>
+
+<!-- FRAGMENT: The middle editor panel -->
+<div th:fragment="editor-panel"
+     id="editor-panel-root"
+     class="h-full flex flex-col"
+     x-data="editorComponent()"
+     th:data-page-id="${page.id}"
+     th:data-initial-content="${page.content}"
+     x-init="init()">
+    <div class="p-6 border-b flex-shrink-0">
+        <p class="text-sm text-slate-500">My Workspace / ...</p>
+        <input type="text" x-ref="titleInput" name="title" th:value="${page.title()}"
+               class="text-3xl font-bold w-full border-0 p-0 focus:ring-0 bg-transparent">
+    </div>
+    <div class="flex-1 overflow-y-auto relative">
+        <form id="editor-form"
+              th:hx-post="@{/space/page/{pageId}(pageId=${page.id})}"
+              hx-target="#editor-panel-root"
+              hx-swap="outerHTML"
+              hx-indicator="#editor-spinner"
+              class="h-full">
+            <input type="hidden" name="title" x-bind:value="$refs.titleInput.value">
+            <input type="hidden" name="content" x-bind:value="content">
+            <textarea x-ref="editor"></textarea>
+        </form>
+        <div id="editor-spinner" class="htmx-indicator absolute inset-0 bg-white/50 flex items-center justify-center pointer-events-none">
+            <p class="bg-slate-800 text-white font-semibold px-4 py-2 rounded-lg shadow-lg">Saving...</p>
+        </div>
+    </div>
+    <div class="p-4 border-t bg-slate-50 flex-shrink-0 flex justify-between items-center">
+        <span id="save-status" class="text-sm text-slate-500" th:text="${saveStatus}"></span>
+        <button type="submit" form="editor-form"
+                class="px-4 py-2 bg-indigo-600 text-white font-semibold rounded-md shadow-sm hover:bg-indigo-700">
+            Save Changes
+        </button>
+    </div>
+</div>
+
+<!-- FRAGMENT: The info content area in the right panel -->
+<div th:fragment="info-content(page)" class="text-sm space-y-4">
+    <div th:if="${page}">
+        <div>
+            <h4 class="font-semibold text-slate-800">Last Updated</h4>
+            <p class="text-slate-600" th:text="${#temporals.format(page.lastUpdatedAt(), 'dd MMM yyyy, HH:mm')}"></p>
+        </div>
+        <div>
+            <h4 class="font-semibold text-slate-800">Author</h4>
+            <p class="text-slate-600" th:text="${page.author()}"></p>
+        </div>
+    </div>
+    <div th:unless="${page}">
+        <p class="text-slate-400">Select a page to see its information.</p>
+    </div>
+</div>
+
+</body>
+</html>

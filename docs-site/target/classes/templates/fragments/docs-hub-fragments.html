@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<!--
+  FRAGMENT: A single node in the navigation menu.
+  This handles state, highlighting, and automatic expansion.
+-->
+<li th:fragment="menu-node(node, hubName, hub)"
+    th:attr="x-data=|{
+        expanded: false,
+        nodeId: '${node.id}',
+        isSection: ${node.isSection()},
+        descendantIds: ${node.isSection() ? hub.getDescendantArticleIds(node.id) : '[]'}
+    }|">
+
+    <div class="flex items-center justify-between p-1 rounded-md"
+         :class="{ 'bg-indigo-50': activeArticleId === nodeId && !isSection }">
+
+        <div class="flex items-center flex-1 min-w-0">
+            <!-- Expander -->
+            <button @click="expanded = !expanded" th:if="${node.isSection()}" class="mr-1 text-slate-400">
+                <svg class="w-4 h-4 transition-transform" :class="{ 'rotate-90': expanded }" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+            </button>
+            <!-- Icon -->
+            <svg th:if="${node.isSection()}" class="w-4 h-4 text-slate-400 mr-2 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+            <svg th:unless="${node.isSection()}" class="w-4 h-4 text-slate-400 mr-2 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+
+            <!-- Title Link -->
+            <a th:if="${!node.isSection()}" href="#"
+               class="text-sm truncate flex-1"
+               :class="{ 'font-semibold text-indigo-600': activeArticleId === nodeId, 'text-slate-700': activeArticleId !== nodeId }"
+               @click.prevent="activeArticleId = nodeId"
+               th:hx-get="@{/hub/{hubName}/article/{id}(hubName=${hubName}, id=${node.id})}"
+               hx-target="#docs-article-content"
+               hx-swap="innerHTML"
+               hx-trigger="click">
+                <span th:text="${node.title()}">Article Title</span>
+            </a>
+            <span th:if="${node.isSection()}" class="text-sm font-medium text-slate-800" th:text="${node.title()}">Section Title</span>
+        </div>
+    </div>
+
+    <!-- Child Nodes: This list automatically expands if the active article is one of its descendants. -->
+    <ul th:if="${node.isSection()}"
+        x-show="expanded"
+        x-collapse
+        class="ml-4 pl-4 border-l border-slate-200 space-y-1 mt-1"
+        x-init="$watch('activeArticleId', newId => { if (descendantIds.includes(newId)) { expanded = true } })">
+        <th:block th:each="child : ${node.children()}">
+            <li th:replace="~{:: menu-node(node=${child}, hubName=${hubName}, hub=${hub})}"></li>
+        </th:block>
+    </ul>
+</li>
+
+<!-- FRAGMENT: The main article content area -->
+<div th:fragment="article-content">
+    <!-- Display content ONLY if an article was found and passed to the model -->
+    <div th:if="${article != null}"
+         class="prose max-w-none"
+         th:hx-get="@{/hub/{hubName}/toc/{id}(hubName=${hub.hubName}, id=${article.id})}"
+         hx-target="#docs-article-toc"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+
+        <div th:utext="${renderedContent}"></div>
+
+        <!-- Next/Previous Navigation -->
+        <div th:if="${navigation}" th:with="prev=${navigation.children().get(0)}, next=${navigation.children().get(1)}"
+             class="mt-12 flex justify-between border-t border-slate-200 pt-6 not-prose">
+            <div>
+                <a th:if="${prev.id()}" th:href="'#' + ${prev.id()}"
+                   th:attr="x-on:click.prevent=|activeArticleId = '${prev.id}'|"
+                   th:hx-get="@{/hub/{hubName}/article/{id}(hubName=${hub.hubName}, id=${prev.id})}"
+                   hx-target="#docs-article-content"
+                   class="inline-flex items-center text-slate-600 hover:text-indigo-600 transition-colors">
+                    <svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    <div>
+                        <div class="text-xs text-slate-500">Previous</div>
+                        <div class="text-sm font-semibold" th:text="${prev.title()}"></div>
+                    </div>
+                </a>
+            </div>
+            <div>
+                <a th:if="${next.id()}" th:href="'#' + ${next.id()}"
+                   th:attr="x-on:click.prevent=|activeArticleId = '${next.id}'|"
+                   th:hx-get="@{/hub/{hubName}/article/{id}(hubName=${hub.hubName}, id=${next.id})}"
+                   hx-target="#docs-article-content"
+                   class="inline-flex items-center text-slate-600 hover:text-indigo-600 transition-colors text-right">
+                    <div>
+                        <div class="text-xs text-slate-500">Next</div>
+                        <div class="text-sm font-semibold" th:text="${next.title()}"></div>
+                    </div>
+                    <svg class="h-5 w-5 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Display a "not found" message if no article was found in the model -->
+    <div th:if="${article == null}" class="prose max-w-none">
+        <h1 class="text-red-500">Article Not Found</h1>
+        <p>The requested article could not be found in this documentation hub.</p>
+        <p>Please select a valid article from the menu.</p>
+    </div>
+</div>
+
+<!-- FRAGMENT: A generic error display -->
+<div th:fragment="error-content" class="prose max-w-none">
+    <h1 class="text-red-500">Error</h1>
+    <p th:text="${error ?: 'An unexpected error occurred.'}">Error message goes here.</p>
+</div>
+
+<!-- FRAGMENT: The "On this page" table of contents -->
+<div th:fragment="table-of-contents" class="sticky top-24">
+    <h3 class="text-sm font-semibold text-slate-900 tracking-tight">On this page</h3>
+    <ul th:if="${!toc.isEmpty()}" class="mt-4 space-y-2 text-sm">
+        <li th:each="item : ${toc}">
+            <a th:href="'#' + ${item.anchor}"
+               class="block text-slate-500 hover:text-slate-800"
+               th:classappend="${item.level == '3'} ? 'pl-4'">
+                <span th:text="${item.title}"></span>
+            </a>
+        </li>
+    </ul>
+    <p th:if="${toc.isEmpty()}" class="mt-4 text-sm text-slate-500">No subheadings found in this article.</p>
+</div>
+
+</body>
+</html>

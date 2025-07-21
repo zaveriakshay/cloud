@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>noqodi Documentation</title>
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3.x.x/dist/cdn.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" th:href="@{/css/styles.css}">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        [x-cloak] {
+            display: none !important;
+        }
+    </style>
+</head>
+<body class="bg-white antialiased" x-data="{ ...aiController(), ...searchController(), isHeaderVisible: true, activeTab: 'guides' }" x-init="init()">
+
+<!-- A vertical flex container for the whole screen -->
+<div class="flex flex-col h-screen overflow-hidden">
+
+    <!-- Wrapper for header and toggle button -->
+    <div class="relative">
+        <!-- Collapsible Header Wrapper -->
+        <div x-show="isHeaderVisible" x-collapse>
+            <!-- FIX: Corrected fragment path -->
+            <header th:replace="~{fragments :: header_main}"></header>
+        </div>
+
+        <!-- Header Toggle Button -->
+        <button @click="isHeaderVisible = !isHeaderVisible"
+                title="Toggle Header"
+                class="absolute left-1/2 -translate-x-1/2 z-50 bg-white border border-slate-200 rounded-full shadow-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-all"
+                :class="isHeaderVisible ? 'bottom-0 translate-y-1/2' : 'top-2'">
+            <svg x-show="isHeaderVisible" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5"/>
+            </svg>
+            <svg x-show="!isHeaderVisible" x-cloak xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/>
+            </svg>
+        </button>
+    </div>
+
+    <!-- A horizontal flex container for the main content and AI panel -->
+    <div class="flex flex-1 min-h-0">
+
+        <!-- Main Content Area (this part will shrink) -->
+        <div class="flex-1 flex flex-col overflow-y-auto">
+            <main class="flex-grow">
+                <!-- Section 1: Hero -->
+                <section class="relative bg-slate-50 border-b border-slate-200 overflow-hidden">
+                    <div class="absolute inset-0 z-0"
+                         style="background-image: linear-gradient(to right, #9400D3, #4B0082, #0000FF, #00FF00, #FFFF00, #FF7F00, #FF0000);
+                                -webkit-mask-image: radial-gradient(circle, black 1.5px, transparent 1.5px);
+                                mask-image: radial-gradient(circle, black 1.5px, transparent 1.5px);
+                                -webkit-mask-size: 16px 16px;
+                                mask-size: 16px 16px;
+                                opacity: 0.2;">
+                    </div>
+                    <div class="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-24 text-center">
+                        <h1 class="text-3xl font-extrabold tracking-tight text-indigo-600 sm:text-4xl md:text-5xl">
+                            noqodi Documentation
+                        </h1>
+                        <p class="mt-6 max-w-3xl mx-auto text-base text-slate-600">
+                            Guides, references, and resources to help you build powerful and reliable integrations with
+                            our platform.
+                        </p>
+                    </div>
+                </section>
+
+                <!-- Section 2: Tabbed Content -->
+                <section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+                    <div>
+                        <div class="border-b border-slate-200">
+                            <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+                                <button @click="activeTab = 'guides'"
+                                        :class="activeTab === 'guides' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'"
+                                        class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg transition-colors">
+                                    Explore our Guides
+                                </button>
+                                <button @click="activeTab = 'apis'"
+                                        :class="activeTab === 'apis' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'"
+                                        class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg transition-colors">
+                                    Explore our APIs
+                                </button>
+                            </nav>
+                        </div>
+                        <div class="mt-8">
+                            <div x-show="activeTab === 'guides'" x-transition>
+                                <div th:if="${!allHubs.isEmpty()}" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                                    <a th:each="hub : ${allHubs}" th:href="@{/hub/{hubName}(hubName=${hub.hubName})}"
+                                       class="group block p-6 bg-slate-50 rounded-2xl border border-transparent hover:border-indigo-300 hover:bg-white hover:shadow-lg transition-all duration-200">
+                                        <div class="flex-shrink-0 h-10 w-10 rounded-lg flex items-center justify-center bg-indigo-100 text-indigo-600">
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/></svg>
+                                        </div>
+                                        <h3 class="mt-3 text-base font-semibold text-slate-800 group-hover:text-indigo-600" th:text="${hub.getArticleTree().title()}"></h3>
+                                        <p class="mt-1 text-sm text-slate-600">Explore guides, tutorials, and answers to frequently asked questions.</p>
+                                    </a>
+                                </div>
+                            </div>
+                            <div x-show="activeTab === 'apis'" x-transition x-cloak>
+                                <div th:if="${!allApis.isEmpty()}" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                                    <a th:each="api : ${allApis}" th:href="@{/api(apiId=${api.id})}"
+                                       class="group block p-6 bg-slate-50 rounded-2xl border border-transparent hover:border-indigo-300 hover:bg-white hover:shadow-lg transition-all duration-200">
+                                        <div class="flex-shrink-0 h-10 w-10 rounded-lg flex items-center justify-center bg-slate-200 text-slate-600">
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 12"/></svg>
+                                        </div>
+                                        <h3 class="mt-3 text-base font-semibold text-slate-800 group-hover:text-indigo-600" th:text="${api.title}"></h3>
+                                        <p class="mt-1 text-sm text-slate-600" th:text="${api.openAPI.info.summary ?: 'Detailed technical reference for integrating with our services.'}"></p>
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+            <!-- Footer is now inside the scrollable area -->
+            <!-- FIX: Corrected fragment path -->
+            <footer th:replace="~{fragments :: footer_main}"></footer>
+        </div>
+
+        <!-- AI Assistant Panel (this part will expand) -->
+        <!-- FIX: Corrected fragment path -->
+        <aside th:replace="~{fragments :: ai_assistant_panel}"></aside>
+
+    </div>
+</div>
+
+<!-- Include the Search Modal and its script -->
+<!-- FIX: Corrected fragment path -->
+<div th:replace="~{fragments :: search_modal}"></div>
+<div th:replace="~{fragments :: search_script}"></div>
+
+<!-- AI controller script -->
+<script>
+    function aiController() {
+        return {
+            aiPanelOpen: false
+        }
+    }
+</script>
+
+</body>
+</html>

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--
+  FIX: The right panel has been completely simplified.
+  It no longer has tabs and is now dedicated solely to the "Info" panel.
+-->
+<aside th:fragment="panel" class="w-5/12 bg-slate-50/50 border-l border-slate-200/80 flex flex-col">
+    <!-- Panel Header -->
+    <div class="p-4 border-b bg-white flex-shrink-0">
+        <h3 class="text-base font-semibold text-slate-800">Page Information</h3>
+    </div>
+
+    <!-- Info Panel Content -->
+    <div id="info-panel"
+         class="p-8 flex-1 overflow-y-auto"
+         hx-get="/space/info/getting-started"
+         hx-trigger="load, updateInfoPanel from:body"
+         hx-swap="innerHTML">
+        <!-- The initial content is loaded here by HTMX -->
+        <div th:replace="~{fragments/space-fragments :: info-content(page=null)}"></div>
+    </div>
+</aside>
+</body>
+</html>
