@@ -92,7 +92,7 @@ public class SearchIndexService {
             // FIX: Use a dedicated, local ObjectMapper for JSON to avoid ambiguity with the YAMLMapper bean.
             ObjectMapper jsonMapper = new ObjectMapper();
             this.searchIndexJson = jsonMapper.writeValueAsString(hits);
-        } catch (JsonProcessgiingException e) {
+        } catch (Exception e) {
             log.error("Failed to serialize search index to JSON string. Search will be unavailable.", e);
             this.searchIndexJson = "[]"; // Keep it as an empty JSON array to prevent client errors.
         }
