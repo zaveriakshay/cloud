@@ -19,17 +19,11 @@ import java.util.*;
 @Slf4j
 public class ResponseService {
 
+    private static final int MAX_RECURSION_DEPTH = 20;
     private final ApiRegistryService apiRegistry;
     private final SnippetService snippetService; // Used to find operations efficiently
     private final ObjectMapper objectMapper;
 
-    /**
-     * Gets a map of response examples for a given operation.
-     *
-     * @param apiId       The unique ID of the API specification.
-     * @param operationId The ID of the operation (e.g., "create-payment").
-     * @return A map where the key is the HTTP status code and the value contains the response details.
-     */
     public Map<String, ResponseInfo> getResponsesForOperation(String apiId, String operationId) {
         if ("get-started".equals(operationId)) {
             return Collections.emptyMap();
@@ -54,10 +48,8 @@ public class ResponseService {
             return Collections.emptyMap();
         }
 
-        // Iterate through each defined response (e.g., "200", "404")
         operation.getResponses().forEach((statusCode, response) -> {
             ApiResponse resolvedResponse = response;
-            // Resolve $ref for ApiResponse if it exists (e.g., #/components/responses/NotFound)
             if (response.get$ref() != null) {
                 String ref = response.get$ref().substring("#/components/responses/".length());
                 resolvedResponse = openAPI.getComponents().getResponses().get(ref);
@@ -65,7 +57,7 @@ public class ResponseService {
 
             if (resolvedResponse != null) {
                 String description = resolvedResponse.getDescription();
-                String exampleJson = "{}"; // Default to empty JSON
+                String exampleJson = "{}";
 
                 if (resolvedResponse.getContent() != null && resolvedResponse.getContent().containsKey("application/json")) {
                     MediaType mediaType = resolvedResponse.getContent().get("application/json");
@@ -78,12 +70,7 @@ public class ResponseService {
         return responseExamples;
     }
 
-    /**
-     * Generates an example JSON string for a given response MediaType.
-     * It prioritizes explicit examples and falls back to schema-based generation.
-     */
     private String generateExampleForResponse(MediaType mediaType, OpenAPI openAPI) {
-        // Priority 1: Use explicit examples from the spec
         if (mediaType.getExamples() != null && !mediaType.getExamples().isEmpty()) {
             Example example = mediaType.getExamples().values().iterator().next();
             if (example.getValue() != null) {
@@ -91,9 +78,8 @@ public class ResponseService {
             }
         }
 
-        // Priority 2: Generate a payload from the schema
         if (mediaType.getSchema() != null) {
-            Object generatedExample = generateExampleFromSchema(mediaType.getSchema(), openAPI, new HashSet<>());
+            Object generatedExample = generateExampleFromSchema(mediaType.getSchema(), openAPI, new HashSet<>(), 0);
             if (generatedExample != null) {
                 return prettyPrintJson(generatedExample);
             }
@@ -104,7 +90,6 @@ public class ResponseService {
 
     private String prettyPrintJson(Object object) {
         try {
-            // Use the pretty printer for consistent, readable output.
             return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(object);
         } catch (JsonProcessingException e) {
             log.error("Error serializing example JSON for response", e);
@@ -113,30 +98,25 @@ public class ResponseService {
     }
 
     /**
-     * Recursively generates an example value from a given schema.
-     * This logic is mirrored from SnippetService to ensure consistency.
+     * FIX: This method is completely rewritten to be truly recursive and handle depth.
      */
-    private Object generateExampleFromSchema(Schema<?> schema, OpenAPI openAPI, Set<String> visitedRefs) {
-        // Handle $ref and prevent circular loops
+    private Object generateExampleFromSchema(Schema<?> schema, OpenAPI openAPI, Set<String> visitedRefs, int depth) {
+        if (schema == null || depth > MAX_RECURSION_DEPTH) {
+            return null;
+        }
+
         if (schema.get$ref() != null) {
             if (visitedRefs.contains(schema.get$ref())) {
                 return "circular reference";
             }
             visitedRefs.add(schema.get$ref());
             String ref = schema.get$ref().substring("#/components/schemas/".length());
-            schema = openAPI.getComponents().getSchemas().get(ref);
+            Schema<?> resolvedSchema = openAPI.getComponents().getSchemas().get(ref);
+            return generateExampleFromSchema(resolvedSchema, openAPI, visitedRefs, depth + 1);
         }
 
-        if (schema == null) {
-            return null;
-        }
-
-        if (schema.getExample() != null) {
-            return schema.getExample();
-        }
-        if (schema.getDefault() != null) {
-            return schema.getDefault();
-        }
+        if (schema.getExample() != null) return schema.getExample();
+        if (schema.getDefault() != null) return schema.getDefault();
 
         String type = schema.getType();
         if (type == null) return null;
@@ -148,20 +128,16 @@ public class ResponseService {
             case "boolean" -> true;
             case "object" -> {
                 Map<String, Object> exampleJson = new LinkedHashMap<>();
-                Map<String, Schema> properties = schema.getProperties();
-                if (properties != null) {
-                    for (Map.Entry<String, Schema> entry : properties.entrySet()) {
-                        exampleJson.put(entry.getKey(), generateExampleFromSchema(entry.getValue(), openAPI, new HashSet<>(visitedRefs)));
+                if (schema.getProperties() != null) {
+                    for (Map.Entry<String, Schema> entry : schema.getProperties().entrySet()) {
+                        exampleJson.put(entry.getKey(), generateExampleFromSchema(entry.getValue(), openAPI, visitedRefs, depth + 1));
                     }
                 }
                 yield exampleJson;
             }
             case "array" -> {
                 Schema<?> itemsSchema = schema.getItems();
-                if (itemsSchema != null) {
-                    yield List.of(generateExampleFromSchema(itemsSchema, openAPI, visitedRefs));
-                }
-                yield Collections.emptyList();
+                yield (itemsSchema != null) ? List.of(generateExampleFromSchema(itemsSchema, openAPI, visitedRefs, depth + 1)) : Collections.emptyList();
             }
             default -> null;
         };

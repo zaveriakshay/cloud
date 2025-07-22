@@ -21,20 +21,12 @@ import java.util.*;
 @Slf4j
 public class SnippetService {
 
+    private static final int MAX_RECURSION_DEPTH = 20;
     private final ApiRegistryService apiRegistry;
     private final ObjectMapper objectMapper;
 
     public record OperationDetails(String path, PathItem.HttpMethod method, Operation operation) {}
 
-    /**
-     * Generates a code snippet for a given operation within a specific API.
-     *
-     * @param apiId       The unique ID of the API specification.
-     * @param operationId The ID of the operation (e.g., "create-payment").
-     * @param target      The language target (e.g., "python").
-     * @param client      The client library (e.g., "requests").
-     * @return The generated code snippet as a string.
-     */
     public String generateSnippet(String apiId, String operationId, String target, String client) {
         if ("get-started".equals(operationId)) {
             return "# Select an API and an endpoint to see an example request.";
@@ -69,12 +61,6 @@ public class SnippetService {
         };
     }
 
-    /**
-     * Gets API operations grouped by tag for a specific API specification.
-     *
-     * @param apiId The unique ID of the API specification.
-     * @return A map of tag names to a list of operations under that tag.
-     */
     public Map<String, List<OperationInfo>> getGroupedApiOperations(String apiId) {
         Map<String, List<OperationInfo>> grouped = new LinkedHashMap<>();
         Optional<ApiSpecification> apiSpecOptional = apiRegistry.getSpecification(apiId);
@@ -114,17 +100,12 @@ public class SnippetService {
         return Optional.empty();
     }
 
-    /**
-     * REFACTORED: Generates a request body payload. It first tries to find a pre-defined example.
-     * If none exists, it intelligently generates a payload from the schema itself.
-     */
     private String getPayloadForOperation(OpenAPI openAPI, Operation operation) {
         if (operation == null || operation.getRequestBody() == null) {
             return "";
         }
 
         RequestBody requestBody = operation.getRequestBody();
-        // Resolve $ref for RequestBody if it exists
         if (requestBody.get$ref() != null) {
             String ref = requestBody.get$ref().substring("#/components/requestBodies/".length());
             requestBody = openAPI.getComponents().getRequestBodies().get(ref);
@@ -136,7 +117,6 @@ public class SnippetService {
 
         MediaType mediaType = requestBody.getContent().get("application/json");
 
-        // Priority 1: Use explicit examples from the spec
         if (mediaType.getExamples() != null && !mediaType.getExamples().isEmpty()) {
             Example example = mediaType.getExamples().values().iterator().next();
             if (example.getValue() != null) {
@@ -144,10 +124,9 @@ public class SnippetService {
             }
         }
 
-        // Priority 2: Generate a payload from the schema
         if (mediaType.getSchema() != null) {
-            Map<String, Object> generatedExample = generateExampleFromSchema(mediaType.getSchema(), openAPI, new HashSet<>());
-            if (!generatedExample.isEmpty()) {
+            Object generatedExample = generateExampleFromSchema(mediaType.getSchema(), openAPI, new HashSet<>(), 0);
+            if (generatedExample != null && (!(generatedExample instanceof Map) || !((Map<?, ?>) generatedExample).isEmpty())) {
                 return prettyPrintJson(generatedExample);
             }
         }
@@ -157,7 +136,6 @@ public class SnippetService {
 
     private String prettyPrintJson(Object object) {
         try {
-            // FIX: Use the pretty printer for consistent, readable output.
             return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(object);
         } catch (JsonProcessingException e) {
             log.error("Error serializing example JSON", e);
@@ -166,98 +144,46 @@ public class SnippetService {
     }
 
     /**
-     * Recursively generates an example Map from a given schema.
-     *
-     * @param schema The schema to generate an example for.
-     * @param openAPI The full OpenAPI model for resolving references.
-     * @param visitedRefs A set to track visited schemas and prevent circular reference loops.
-     * @return A map representing the example JSON object.
+     * FIX: This method is completely rewritten to be truly recursive and handle depth.
      */
-    private Map<String, Object> generateExampleFromSchema(Schema<?> schema, OpenAPI openAPI, Set<String> visitedRefs) {
-        // Handle $ref and prevent circular loops
-        if (schema.get$ref() != null) {
-            if (visitedRefs.contains(schema.get$ref())) {
-                return Map.of("...", "circular reference");
-            }
-            visitedRefs.add(schema.get$ref());
-            String ref = schema.get$ref().substring("#/components/schemas/".length());
-            schema = openAPI.getComponents().getSchemas().get(ref);
-        }
-
-        if (schema == null) {
-            return Collections.emptyMap();
-        }
-
-        // If the schema itself has a top-level example, use it.
-        if (schema.getExample() instanceof Map) {
-            return (Map<String, Object>) schema.getExample();
-        }
-
-        Map<String, Object> exampleJson = new LinkedHashMap<>();
-        Map<String, Schema> properties = schema.getProperties();
-
-        if (properties != null) {
-            for (Map.Entry<String, Schema> entry : properties.entrySet()) {
-                String propertyName = entry.getKey();
-                Schema<?> propertySchema = entry.getValue();
-                // Pass a new copy of visitedRefs for each property branch to allow non-circular reuse of schemas
-                exampleJson.put(propertyName, generateExampleValueForProperty(propertySchema, openAPI, new HashSet<>(visitedRefs)));
-            }
-        }
-
-        return exampleJson;
-    }
-
-    /**
-     * Generates a single example value for a property schema.
-     *
-     * @param propertySchema The schema for the specific property.
-     * @param openAPI The full OpenAPI model for resolving references.
-     * @param visitedRefs A set to track visited schemas and prevent circular reference loops.
-     * @return An example value (e.g., String, Integer, Map, List).
-     */
-    private Object generateExampleValueForProperty(Schema<?> propertySchema, OpenAPI openAPI, Set<String> visitedRefs) {
-        // Priority 1: Use explicit example on the property
-        if (propertySchema.getExample() != null) {
-            return propertySchema.getExample();
-        }
-
-        // Priority 2: Use default value
-        if (propertySchema.getDefault() != null) {
-            return propertySchema.getDefault();
-        }
-
-        // Handle $ref and prevent circular loops
-        if (propertySchema.get$ref() != null) {
-            if (visitedRefs.contains(propertySchema.get$ref())) {
-                return "circular reference";
-            }
-            visitedRefs.add(propertySchema.get$ref());
-            String ref = propertySchema.get$ref().substring("#/components/schemas/".length());
-            propertySchema = openAPI.getComponents().getSchemas().get(ref);
-        }
-
-        if (propertySchema == null) {
+    private Object generateExampleFromSchema(Schema<?> schema, OpenAPI openAPI, Set<String> visitedRefs, int depth) {
+        if (schema == null || depth > MAX_RECURSION_DEPTH) {
             return null;
         }
 
-        // Priority 3: Generate based on type
-        String type = propertySchema.getType();
+        if (schema.get$ref() != null) {
+            if (visitedRefs.contains(schema.get$ref())) {
+                return "circular reference";
+            }
+            visitedRefs.add(schema.get$ref());
+            String ref = schema.get$ref().substring("#/components/schemas/".length());
+            Schema<?> resolvedSchema = openAPI.getComponents().getSchemas().get(ref);
+            return generateExampleFromSchema(resolvedSchema, openAPI, visitedRefs, depth + 1);
+        }
+
+        if (schema.getExample() != null) return schema.getExample();
+        if (schema.getDefault() != null) return schema.getDefault();
+
+        String type = schema.getType();
         if (type == null) return null;
 
         return switch (type) {
-            case "string" -> generateStringExample(propertySchema);
-            case "integer" -> generateIntegerExample(propertySchema);
-            case "number" -> generateNumberExample(propertySchema);
+            case "string" -> generateStringExample(schema);
+            case "integer" -> generateIntegerExample(schema);
+            case "number" -> generateNumberExample(schema);
             case "boolean" -> true;
-            case "object" -> generateExampleFromSchema(propertySchema, openAPI, visitedRefs);
-            case "array" -> {
-                Schema<?> itemsSchema = propertySchema.getItems();
-                if (itemsSchema != null) {
-                    // Generate an array with one example item
-                    yield List.of(generateExampleValueForProperty(itemsSchema, openAPI, visitedRefs));
+            case "object" -> {
+                Map<String, Object> exampleJson = new LinkedHashMap<>();
+                if (schema.getProperties() != null) {
+                    for (Map.Entry<String, Schema> entry : schema.getProperties().entrySet()) {
+                        exampleJson.put(entry.getKey(), generateExampleFromSchema(entry.getValue(), openAPI, visitedRefs, depth + 1));
+                    }
                 }
-                yield Collections.emptyList();
+                yield exampleJson;
+            }
+            case "array" -> {
+                Schema<?> itemsSchema = schema.getItems();
+                yield (itemsSchema != null) ? List.of(generateExampleFromSchema(itemsSchema, openAPI, visitedRefs, depth + 1)) : Collections.emptyList();
             }
             default -> null;
         };
@@ -284,7 +210,7 @@ public class SnippetService {
         if (propertySchema.getMinimum() != null) {
             return propertySchema.getMinimum().intValue();
         }
-        return 1000; // A reasonable default for amounts in cents
+        return 1000;
     }
 
     private Double generateNumberExample(Schema<?> propertySchema) {
@@ -294,9 +220,7 @@ public class SnippetService {
         return 10.5;
     }
 
-    // --- SNIPPET GENERATORS ---
-    // (These remain private and are unchanged)
-
+    // --- SNIPPET GENERATORS (unchanged) ---
     private String generateCurlSnippet(OpenAPI openAPI, OperationDetails details, String payload) {
         String method = details.method().toString();
         String path = details.path();
