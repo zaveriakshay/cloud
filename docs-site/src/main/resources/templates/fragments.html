@@ -182,9 +182,6 @@
                     .catch(error => console.error('Error loading search index:', error))
                     .finally(() => this.isLoading = false);
             },
-            /**
-             * FIX: This function now searches the 'content' field and generates a snippet.
-             */
             performSearch() {
                 if (!this.searchQuery) {
                     this.filteredResults = [];
@@ -202,11 +199,9 @@
                             newItem.title = this.highlight(item.title, query);
                             newItem.breadcrumb = this.highlight(item.breadcrumb, query);
 
-                            // If the match is in the content, create a contextual snippet.
                             if (contentMatch) {
                                 newItem.snippet = this.createSnippet(item.content, query);
                             } else {
-                                // Otherwise, just show the start of the content as a fallback.
                                 newItem.snippet = item.content ? item.content.substring(0, 100) + '...' : '';
                             }
                             return newItem;
@@ -214,11 +209,8 @@
                         return null;
                     })
                     .filter(Boolean)
-                    .slice(0, 15); // Show top 15 results
+                    .slice(0, 15);
             },
-            /**
-             * NEW: Creates a contextual snippet from the content.
-             */
             createSnippet(content, query) {
                 const contentLower = content.toLowerCase();
                 const queryLower = query.toLowerCase();
@@ -247,7 +239,6 @@
                 return string.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
             },
             init() {
-                // Keyboard shortcut (Cmd+K or Ctrl+K)
                 window.addEventListener('keydown', e => {
                     if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
                         e.preventDefault();
@@ -257,7 +248,6 @@
                         this.closeSearchModal();
                     }
                 });
-                // Watch for changes in searchQuery to perform search
                 this.$watch('searchQuery', () => this.performSearch());
             }
         }
@@ -268,6 +258,8 @@
 <!-- AI ASSISTANT PANEL (Push-style)                                                       -->
 <!-- ===================================================================================== -->
 <aside th:fragment="ai_assistant_panel"
+       x-data="aiController()"
+       x-init="initAi()"
        :class="aiPanelOpen ? 'w-full max-w-md border-l border-slate-200' : 'w-0'"
        class="flex-shrink-0 bg-white transition-all duration-300 ease-in-out overflow-hidden">
 
@@ -291,7 +283,7 @@
                 </h1>
                 <div class="flex items-center gap-2">
                     <!-- Action Buttons -->
-                    <button class="p-2 rounded-md text-slate-500 hover:bg-slate-100 transition-colors" aria-label="Clear history">
+                    <button @click="clearHistory()" class="p-2 rounded-md text-slate-500 hover:bg-slate-100 transition-colors" aria-label="Clear history">
                         <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M9 3V1.5A1.5 1.5 0 0 0 7.5 0h-3A1.5 1.5 0 0 0 3 1.5V3H.75a.75.75 0 0 0 0 1.5h.75V10a2 2 0 0 0 2 2h5a2 2 0 0 0 2-2V4.5h.75a.75.75 0 0 0 0-1.5H9ZM7.5 1.4h-3a.1.1 0 0 0-.1.1V3h3.2V1.5a.1.1 0 0 0-.1-.1Zm1.6 3.1V10a.6.6 0 0 1-.6.6h-5a.6.6 0 0 1-.6-.6V4.5h6.2Z"></path><path fill-rule="evenodd" clip-rule="evenodd" d="M4.625 5.5c.345 0 .625.28.625.625v2.75a.625.625 0 1 1-1.25 0v-2.75c0-.345.28-.625.625-.625Zm2.75 0c.345 0 .625.28.625.625v2.75a.625.625 0 1 1-1.25 0v-2.75c0-.345.28-.625.625-.625Z"></path></svg>
                     </button>
                     <button @click="aiPanelOpen = false" class="p-2 rounded-md text-slate-500 hover:bg-slate-100 transition-colors" aria-label="Close panel">
@@ -303,35 +295,73 @@
 
         <!-- Main Content (Chat Area) -->
         <main class="flex-1 flex flex-col overflow-hidden p-4">
-            <div class="flex-1 overflow-y-auto space-y-6">
-                <!-- Welcome Message -->
-                <div class="text-xs text-center text-slate-500">Responses are generated using AI and may contain mistakes.</div>
-
-                <!-- Chat Bubbles -->
-                <div class="space-y-4">
-                    <div class="p-3 bg-slate-100 rounded-lg max-w-sm text-sm text-slate-700">
-                        Ask questions about our documentation and get help with your integration.
+            <div x-ref="chatContainer" class="flex-1 overflow-y-auto space-y-6">
+                <!-- Chat History Loop -->
+                <template x-for="(message, index) in chatHistory" :key="index">
+                    <div class="space-y-4">
+                        <!-- AI Message Bubble -->
+                        <template x-if="message.role === 'ai'">
+                            <div class="flex gap-3">
+                                <div class="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
+                                    <svg class="w-5 h-5" viewBox="0 0 16 17" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M11.4715 3.12411C11.5425 3.09893 11.5984 3.04302 11.6236 2.97196L12.2639 1.16504C12.3032 1.05404 12.4014 0.99854 12.4995 0.998535C12.5977 0.998531 12.6958 1.05403 12.7352 1.16504L13.3754 2.97196C13.4006 3.04302 13.4565 3.09893 13.5276 3.12411L15.3345 3.76436C15.4455 3.80369 15.501 3.90184 15.501 4C15.501 4.09816 15.4455 4.19631 15.3345 4.23565L13.5276 4.8759C13.4565 4.90108 13.4006 4.95698 13.3754 5.02805L12.7352 6.83497C12.6958 6.94597 12.5977 7.00147 12.4995 7.00147C12.4014 7.00147 12.3032 6.94596 12.2639 6.83497L11.6236 5.02805C11.5984 4.95698 11.5425 4.90108 11.4715 4.8759L9.66456 4.23565C9.55356 4.19632 9.49805 4.09816 9.49806 4C9.49806 3.90184 9.55356 3.80369 9.66456 3.76436L11.4715 3.12411Z" fill="currentColor"></path><path fill-rule="evenodd" clip-rule="evenodd" d="M6.99952 5.99119L6.43977 7.57092C6.21315 8.21049 5.71001 8.71363 5.07044 8.94025L3.49071 9.5L5.07044 10.0598C5.71001 10.2864 6.21315 10.7895 6.43977 11.4291L6.99952 13.0088L7.55927 11.4291C7.78589 10.7895 8.28903 10.2864 8.9286 10.0598L10.5083 9.5L8.9286 8.94025C8.28903 8.71363 7.78589 8.21049 7.55927 7.57092L6.99952 5.99119ZM7.70645 3.49511C7.58846 3.1621 7.29398 2.99559 6.99951 2.9956C6.70505 2.9956 6.41058 3.1621 6.29259 3.49511L5.0259 7.06994C4.95036 7.28313 4.78265 7.45084 4.56946 7.52638L0.994626 8.79307C0.66162 8.91106 0.495117 9.20553 0.495117 9.5C0.495118 9.79447 0.661621 10.0889 0.994628 10.2069L4.56946 11.4736C4.78265 11.5492 4.95036 11.7169 5.0259 11.9301L6.29259 15.5049C6.41058 15.8379 6.70505 16.0044 6.99951 16.0044C7.29398 16.0044 7.58846 15.8379 7.70645 15.5049L8.97314 11.9301C9.04868 11.7169 9.21639 11.5492 9.42958 11.4736L13.0044 10.2069C13.3374 10.0889 13.5039 9.79447 13.5039 9.5C13.5039 9.20553 13.3374 8.91106 13.0044 8.79307L9.42958 7.52638C9.21639 7.45084 9.04868 7.28313 8.97314 7.06994L7.70645 3.49511Z" fill="currentColor"></path></svg>
+                                </div>
+                                <div class="p-3 bg-slate-100 rounded-lg max-w-sm text-sm text-slate-800 prose prose-sm max-w-none">
+                                    <div x-html="message.content"></div>
+                                    <!-- Sources -->
+                                    <template x-if="message.sources && message.sources.length > 0">
+                                        <div class="mt-4 border-t border-slate-200 pt-3">
+                                            <h4 class="text-xs font-semibold text-slate-500 mb-2">Sources:</h4>
+                                            <div class="flex flex-wrap gap-2">
+                                                <template x-for="source in message.sources" :key="source.id">
+                                                    <a :href="source.metadata.url" target="_blank" class="text-xs bg-white border border-slate-300 rounded-full px-2.5 py-1 hover:bg-indigo-50 hover:border-indigo-400 transition-colors no-underline">
+                                                        <span x-text="source.metadata.title"></span>
+                                                    </a>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                        <!-- User Message Bubble -->
+                        <template x-if="message.role === 'user'">
+                            <div class="flex justify-end">
+                                <div class="p-3 bg-indigo-600 text-white rounded-lg max-w-sm text-sm" x-text="message.content"></div>
+                            </div>
+                        </template>
                     </div>
-                    <div class="p-3 bg-slate-100 rounded-lg max-w-sm text-sm text-slate-700">
-                        Tip: you can highlight any text to ask questions about it.
-                    </div>
-                </div>
+                </template>
 
-                <!-- Suggested Questions -->
-                <div class="space-y-2">
-                    <button class="w-full text-left p-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors">What is noqodi?</button>
-                    <button class="w-full text-left p-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors">How do I get started?</button>
-                    <button class="w-full text-left p-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors">What are the different payment methods available?</button>
-                </div>
+                <!-- Loading Indicator -->
+                <template x-if="isLoading">
+                    <div class="flex gap-3">
+                        <div class="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
+                            <svg class="w-5 h-5" viewBox="0 0 16 17" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M11.4715 3.12411C11.5425 3.09893 11.5984 3.04302 11.6236 2.97196L12.2639 1.16504C12.3032 1.05404 12.4014 0.99854 12.4995 0.998535C12.5977 0.998531 12.6958 1.05403 12.7352 1.16504L13.3754 2.97196C13.4006 3.04302 13.4565 3.09893 13.5276 3.12411L15.3345 3.76436C15.4455 3.80369 15.501 3.90184 15.501 4C15.501 4.09816 15.4455 4.19631 15.3345 4.23565L13.5276 4.8759C13.4565 4.90108 13.4006 4.95698 13.3754 5.02805L12.7352 6.83497C12.6958 6.94597 12.5977 7.00147 12.4995 7.00147C12.4014 7.00147 12.3032 6.94596 12.2639 6.83497L11.6236 5.02805C11.5984 4.95698 11.5425 4.90108 11.4715 4.8759L9.66456 4.23565C9.55356 4.19632 9.49805 4.09816 9.49806 4C9.49806 3.90184 9.55356 3.80369 9.66456 3.76436L11.4715 3.12411Z" fill="currentColor"></path><path fill-rule="evenodd" clip-rule="evenodd" d="M6.99952 5.99119L6.43977 7.57092C6.21315 8.21049 5.71001 8.71363 5.07044 8.94025L3.49071 9.5L5.07044 10.0598C5.71001 10.2864 6.21315 10.7895 6.43977 11.4291L6.99952 13.0088L7.55927 11.4291C7.78589 10.7895 8.28903 10.2864 8.9286 10.0598L10.5083 9.5L8.9286 8.94025C8.28903 8.71363 7.78589 8.21049 7.55927 7.57092L6.99952 5.99119ZM7.70645 3.49511C7.58846 3.1621 7.29398 2.99559 6.99951 2.9956C6.70505 2.9956 6.41058 3.1621 6.29259 3.49511L5.0259 7.06994C4.95036 7.28313 4.78265 7.45084 4.56946 7.52638L0.994626 8.79307C0.66162 8.91106 0.495117 9.20553 0.495117 9.5C0.495118 9.79447 0.661621 10.0889 0.994628 10.2069L4.56946 11.4736C4.78265 11.5492 4.95036 11.7169 5.0259 11.9301L6.29259 15.5049C6.41058 15.8379 6.70505 16.0044 6.99951 16.0044C7.29398 16.0044 7.58846 15.8379 7.70645 15.5049L8.97314 11.9301C9.04868 11.7169 9.21639 11.5492 9.42958 11.4736L13.0044 10.2069C13.3374 10.0889 13.5039 9.79447 13.5039 9.5C13.5039 9.20553 13.3374 8.91106 13.0044 8.79307L9.42958 7.52638C9.21639 7.45084 9.04868 7.28313 8.97314 7.06994L7.70645 3.49511Z" fill="currentColor"></path></svg>
+                        </div>
+                        <div class="p-3 bg-slate-100 rounded-lg max-w-sm text-sm text-slate-800 flex items-center gap-2">
+                            <span class="w-2 h-2 bg-slate-400 rounded-full animate-pulse" style="animation-delay: 0s;"></span>
+                            <span class="w-2 h-2 bg-slate-400 rounded-full animate-pulse" style="animation-delay: 0.2s;"></span>
+                            <span class="w-2 h-2 bg-slate-400 rounded-full animate-pulse" style="animation-delay: 0.4s;"></span>
+                        </div>
+                    </div>
+                </template>
             </div>
         </main>
 
         <!-- Footer (Input Area) -->
         <footer class="flex-shrink-0 p-4 border-t border-slate-200 bg-white">
             <div class="relative">
-                <textarea rows="1" placeholder="Ask a question" class="w-full p-3 pr-12 border border-slate-300 rounded-lg resize-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"></textarea>
-                <button disabled class="absolute right-2 top-2 p-2 rounded-full bg-indigo-500 text-white disabled:bg-slate-200 disabled:text-slate-400 transition-colors" aria-label="Send message">
-                    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg"><path d="M.97 4.72a.75.75 0 0 0 1.06 1.06l3.22-3.22v8.69a.75.75 0 0 0 1.5 0V2.56l3.22 3.22a.75.75 0 1 0 1.06-1.06L6.53.22a.748.748 0 0 0-1.06 0l-4.5 4.5Z"></path></svg>
+                <textarea x-model="userInput"
+                          @keydown.enter.prevent="submitQuery()"
+                          :disabled="isLoading"
+                          rows="1"
+                          placeholder="Ask a question..."
+                          class="w-full p-3 pr-12 border border-slate-300 rounded-lg resize-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition disabled:bg-slate-50"></textarea>
+                <button @click="submitQuery()"
+                        :disabled="isLoading || !userInput.trim()"
+                        class="absolute right-2 top-2 p-2 rounded-full bg-indigo-500 text-white disabled:bg-slate-300 disabled:text-slate-500 transition-colors"
+                        aria-label="Send message">
+                    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg" class="w-5 h-5"><path d="M.97 4.72a.75.75 0 0 0 1.06 1.06l3.22-3.22v8.69a.75.75 0 0 0 1.5 0V2.56l3.22 3.22a.75.75 0 1 0 1.06-1.06L6.53.22a.748.748 0 0 0-1.06 0l-4.5 4.5Z" fill="currentColor"></path></svg>
                 </button>
             </div>
         </footer>
@@ -339,7 +369,7 @@
 </aside>
 
 <!-- ===================================================================================== -->
-<!-- NEW FOOTER FRAGMENT                                                                   -->
+<!-- FOOTER FRAGMENT                                                                       -->
 <!-- ===================================================================================== -->
 <footer th:fragment="footer_main" class="bg-slate-900 text-slate-400 flex-shrink-0">
     <div class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
@@ -567,7 +597,7 @@
              class="mt-12 flex justify-between border-t border-slate-200 pt-6 not-prose">
             <div>
                 <a th:if="${prev.id()}" th:href="'#' + ${prev.id()}"
-                   th:attr="x-on:click.prevent=|activeArticleId = '${prev.id}'|"
+                   th:attr="x-on:click.prevent='activeArticleId = \'' + ${prev.id} + '\''"
                    th:hx-get="@{/hub/{hubName}/article/{id}(hubName=${hub.hubName}, id=${prev.id})}"
                    hx-target="#docs-article-content"
                    class="inline-flex items-center text-slate-600 hover:text-indigo-600 transition-colors">
@@ -580,7 +610,7 @@
             </div>
             <div>
                 <a th:if="${next.id()}" th:href="'#' + ${next.id()}"
-                   th:attr="x-on:click.prevent=|activeArticleId = '${next.id}'|"
+                   th:attr="x-on:click.prevent='activeArticleId = \'' + ${next.id} + '\''"
                    th:hx-get="@{/hub/{hubName}/article/{id}(hubName=${hub.hubName}, id=${next.id})}"
                    hx-target="#docs-article-content"
                    class="inline-flex items-center text-slate-600 hover:text-indigo-600 transition-colors text-right">
@@ -614,8 +644,13 @@
     <ul th:if="${!toc.isEmpty()}" class="mt-4 space-y-2 text-sm">
         <li th:each="item : ${toc}">
             <a th:href="'#' + ${item.anchor}"
-               class="block text-slate-500 hover:text-slate-800"
-               th:classappend="${item.level == '3'} ? 'pl-4'">
+               class="block transition-colors border-l-2 -ml-px"
+               :class="{
+                   'font-semibold text-indigo-600 border-indigo-600': activeHeadingId === '[[${item.anchor}]]',
+                   'text-slate-500 border-transparent hover:border-slate-400': activeHeadingId !== '[[${item.anchor}]]',
+                   'pl-7': '[[${item.level}]]' === '3',
+                   'pl-3': '[[${item.level}]]' !== '3'
+               }">
                 <span th:text="${item.title}"></span>
             </a>
         </li>

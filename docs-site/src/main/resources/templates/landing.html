@@ -17,7 +17,11 @@
         }
     </style>
 </head>
-<body class="bg-white antialiased" x-data="{ ...aiController(), ...searchController(), isHeaderVisible: true, activeTab: 'guides' }" x-init="init()">
+<!--
+  FIX: The x-data directive is now wrapped in a proper pageController function
+  to correctly merge all component states.
+-->
+<body class="bg-white antialiased" x-data="pageController()" x-init="init()">
 
 <!-- A vertical flex container for the whole screen -->
 <div class="flex flex-col h-screen overflow-hidden">
@@ -26,7 +30,6 @@
     <div class="relative">
         <!-- Collapsible Header Wrapper -->
         <div x-show="isHeaderVisible" x-collapse>
-            <!-- FIX: Corrected fragment path -->
             <header th:replace="~{fragments :: header_main}"></header>
         </div>
 
@@ -117,28 +120,36 @@
                     </div>
                 </section>
             </main>
-            <!-- Footer is now inside the scrollable area -->
-            <!-- FIX: Corrected fragment path -->
             <footer th:replace="~{fragments :: footer_main}"></footer>
         </div>
 
-        <!-- AI Assistant Panel (this part will expand) -->
-        <!-- FIX: Corrected fragment path -->
+        <!-- AI Assistant Panel -->
         <aside th:replace="~{fragments :: ai_assistant_panel}"></aside>
 
     </div>
 </div>
 
-<!-- Include the Search Modal and its script -->
-<!-- FIX: Corrected fragment path -->
+<!-- Modals and Scripts -->
 <div th:replace="~{fragments :: search_modal}"></div>
 <div th:replace="~{fragments :: search_script}"></div>
+<script th:src="@{/js/ai_script.js}"></script>
 
-<!-- AI controller script -->
 <script>
-    function aiController() {
+    // FIX: Create a single page controller to manage all state.
+    function pageController() {
+        const searchAppComponent = searchController();
+        const aiAppComponent = aiController();
+
         return {
-            aiPanelOpen: false
+            ...searchAppComponent,
+            ...aiAppComponent,
+            aiPanelOpen: false,
+            isHeaderVisible: true,
+            activeTab: 'guides',
+            init() {
+                searchAppComponent.init.call(this);
+                // AI panel has its own init, called from the fragment itself
+            }
         }
     }
 </script>

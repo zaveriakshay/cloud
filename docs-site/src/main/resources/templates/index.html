@@ -47,7 +47,6 @@
     <div class="relative">
         <!-- Collapsible Header Wrapper -->
         <div x-show="isHeaderVisible" x-collapse>
-            <!-- FIX: Corrected fragment path -->
             <header th:replace="~{fragments :: header_main}"></header>
         </div>
 
@@ -73,14 +72,12 @@
                    :class="isSidebarCollapsed ? 'w-20' : 'w-72'">
                 <div class="flex-1 overflow-y-auto p-6">
                     <nav>
-                        <!-- FIX: Corrected fragment path -->
                         <div th:replace="~{fragments :: sidebar_nav_section}"></div>
                     </nav>
                 </div>
             </aside>
 
             <!-- Main Content Wrapper -->
-            <!-- FIX: Corrected fragment path -->
             <div id="content-panes"
                  class="flex flex-1 overflow-hidden"
                  th:replace="~{fragments :: main_content_pane}">
@@ -88,13 +85,11 @@
         </div>
 
         <!-- The AI Assistant Panel -->
-        <!-- FIX: Corrected fragment path -->
         <aside th:replace="~{fragments :: ai_assistant_panel}"></aside>
     </div>
 </div>
 
 <!-- Search Modal -->
-<!-- FIX: Corrected fragment path -->
 <div th:replace="~{fragments :: search_modal}"></div>
 
 <!-- API Tester Modal -->
@@ -125,13 +120,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/copy-to-clipboard/prism-copy-to-clipboard.min.js"></script>
 
 <!-- Include Search and other JS controllers -->
-<!-- FIX: Corrected fragment path -->
 <div th:replace="~{fragments :: search_script}"></div>
-<script>
-    function aiController() {
-        return {aiPanelOpen: false}
-    }
+<script th:src="@{/js/ai_script.js}"></script>
 
+<script>
     function docsApp() {
         return {
             isSidebarCollapsed: false,
@@ -194,10 +186,12 @@
             ...docsAppComponent,
             ...searchAppComponent,
             ...aiAppComponent,
+            aiPanelOpen: false,
             isHeaderVisible: true,
             init() {
                 docsAppComponent.docsAppInit.call(this);
                 searchAppComponent.init.call(this);
+                // AI controller has its own init, called from the panel fragment
             }
         }
     }
