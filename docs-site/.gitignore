@@ -8,7 +8,7 @@ target/
 # Ignore sensitive Google Cloud credential files
 # This will match files like 'service-account-key.json' and 'big-ellysium-....json'
 service-account-key*.json
-*ellysium*.json
+*elysium*.json
 
 
 # =============================================================================
